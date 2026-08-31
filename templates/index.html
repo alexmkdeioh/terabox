@@ -1,0 +1,748 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="referrer" content="no-referrer">
+    <title>TeraStream Pro - High Speed Video Streamer & Downloader</title>
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'><path d='M8 5v14l11-7z'/></svg>">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        heading: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            glow: 'rgba(56, 189, 248, 0.35)',
+                        },
+                        dark: {
+                            bg: '#070b14',
+                            card: '#0f172a',
+                            cardAlt: '#131d35',
+                            border: '#1e293b',
+                            borderHover: '#334155'
+                        }
+                    },
+                    boxShadow: {
+                        'glow': '0 0 30px -5px rgba(14, 165, 233, 0.3)',
+                        'glow-lg': '0 0 50px -10px rgba(14, 165, 233, 0.4)',
+                        'player': '0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 35px rgba(14, 165, 233, 0.15)',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- Plyr CSS & JS -->
+    <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
+    <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
+    <!-- Hls.js -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            background-color: #070b14;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .glass-input {
+            background: rgba(10, 15, 29, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+        .plyr--video {
+            border-radius: 1rem;
+            overflow: hidden;
+            background: #000;
+        }
+        .plyr--full-ui input[type=range] {
+            color: #0ea5e9;
+        }
+        .plyr__control--overlaid {
+            background: rgba(14, 165, 233, 0.9) !important;
+        }
+        .theater-mode {
+            max-width: 100% !important;
+            width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        .theater-player {
+            max-height: 85vh !important;
+            height: 80vh !important;
+        }
+    </style>
+</head>
+<body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- Header Navigation -->
+    <header class="w-full border-b border-dark-border/80 glass-panel sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <a href="/" class="flex items-center gap-3 group">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-glow group-hover:scale-105 transition duration-200">
+                    <i data-lucide="play" class="w-5 h-5 text-white fill-white ml-0.5"></i>
+                </div>
+                <div>
+                    <div class="flex items-center gap-2">
+                        <span class="font-heading font-bold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-brand-400 bg-clip-text text-transparent">TeraStream</span>
+                        <span class="text-[10px] font-bold uppercase tracking-wider bg-brand-500/20 text-brand-400 px-2 py-0.5 rounded-full border border-brand-500/30">Native Pro</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 -mt-0.5">100% Ad-Free • Instant Playback & Downloader</p>
+                </div>
+            </a>
+
+            <div class="flex items-center gap-3">
+                <button id="toggleHistoryBtn" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-dark-cardAlt hover:bg-slate-800 border border-dark-border transition">
+                    <i data-lucide="history" class="w-4 h-4 text-brand-400"></i>
+                    <span class="hidden sm:inline">Recent Watchlist</span>
+                </button>
+                <div class="h-4 w-[1px] bg-dark-border hidden sm:block"></div>
+                <div class="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2.5 py-1 rounded-full">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    <span>High-Speed HLS Active</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main id="mainContainer" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6 transition-all duration-300">
+        
+        <!-- Hero Section & Link Input Bar -->
+        <section class="glass-panel rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+            <div class="absolute -right-20 -top-20 w-64 h-64 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            <div class="max-w-3xl">
+                <h1 class="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white mb-2">
+                    TeraBox <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>
+                </h1>
+                <p class="text-sm sm:text-base text-slate-400 mb-6">
+                    Stream your videos instantly with zero ads, bypass all Cloudflare limits, and download at maximum speed.
+                </p>
+            </div>
+
+            <!-- Input Form -->
+            <form id="streamForm" class="relative flex flex-col sm:flex-row gap-3">
+                <div class="relative flex-1">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                        <i data-lucide="link-2" class="w-5 h-5"></i>
+                    </div>
+                    <input 
+                        type="text" 
+                        id="urlInput"
+                        placeholder="Paste link here (e.g., https://teraboxshare.com/s/1zQn47gsm4Q1ny1GTNfnGDA)" 
+                        required
+                        class="w-full glass-input rounded-xl pl-11 pr-24 py-3.5 text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 transition duration-200"
+                    />
+                    <div class="absolute inset-y-0 right-0 pr-2 flex items-center gap-1">
+                        <button type="button" id="pasteBtn" title="Paste from clipboard" class="px-2.5 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition flex items-center gap-1">
+                            <i data-lucide="clipboard" class="w-3.5 h-3.5"></i>
+                            <span class="hidden sm:inline">Paste</span>
+                        </button>
+                        <button type="button" id="clearBtn" title="Clear input" class="hidden p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition">
+                            <i data-lucide="x" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+                <button 
+                    type="submit" 
+                    id="submitBtn"
+                    class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold px-7 py-3.5 rounded-xl shadow-glow hover:shadow-glow-lg transition duration-200 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                >
+                    <i data-lucide="play" class="w-4 h-4 fill-white"></i>
+                    <span>Stream & Download</span>
+                </button>
+            </form>
+
+            <!-- Error Notice Box -->
+            <div id="errorBox" class="hidden mt-4 p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-sm flex items-start gap-3">
+                <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
+                <div class="flex-1">
+                    <p id="errorMessage" class="font-medium">Failed to process link.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Loading State Placeholder -->
+        <div id="loadingState" class="hidden glass-panel rounded-2xl p-12 text-center flex-col items-center justify-center gap-4">
+            <div class="relative w-16 h-16">
+                <div class="w-16 h-16 rounded-full border-4 border-slate-800 border-t-brand-400 animate-spin"></div>
+                <i data-lucide="film" class="w-6 h-6 text-brand-400 absolute inset-0 m-auto animate-pulse"></i>
+            </div>
+            <div>
+                <h3 class="text-lg font-bold text-white mb-1">Extracting Direct HLS Stream</h3>
+                <p class="text-xs text-slate-400">Connecting to high-speed CDN nodes & generating master playlist...</p>
+            </div>
+        </div>
+
+        <!-- Video Player Display Container -->
+        <section id="playerSection" class="flex flex-col gap-3">
+            
+            <!-- Player Toolbar -->
+            <div class="glass-panel rounded-xl px-4 py-2.5 border border-dark-border flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
+                    <span class="font-semibold text-white">Stream Status:</span>
+                    <span class="text-xs text-brand-400 bg-brand-500/10 px-2.5 py-1 rounded-lg border border-brand-500/20 font-semibold flex items-center gap-1.5">
+                        <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                        <span>High-Speed Direct Player</span>
+                    </span>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button id="theaterBtn" title="Toggle Theater Mode" class="px-3 py-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5">
+                        <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-brand-400"></i>
+                        <span>Theater Mode</span>
+                    </button>
+                    <button id="reloadPlayerBtn" title="Reload Video" class="p-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-400 hover:text-white transition">
+                        <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Player Wrapper (16:9 responsive) -->
+            <div id="playerWrapper" class="relative bg-black rounded-2xl overflow-hidden border border-dark-border shadow-player">
+                
+                <!-- Native HTML5 Video Element -->
+                <div id="nativePlayerContainer" class="w-full aspect-video bg-black flex items-center justify-center">
+                    <video 
+                        id="nativeVideo" 
+                        class="w-full h-full" 
+                        controls 
+                        playsinline 
+                        preload="auto"
+                        poster="{{ initial_data.thumbnail or '' }}"
+                    ></video>
+                </div>
+
+                <!-- Fallback Iframe Container -->
+                <div id="iframePlayerContainer" class="hidden w-full aspect-video min-h-[360px] sm:min-h-[480px] lg:min-h-[540px] bg-black relative">
+                    <iframe 
+                        id="videoIframe"
+                        src="" 
+                        class="w-full h-full border-0 absolute inset-0"
+                        referrerpolicy="no-referrer"
+                        allowfullscreen="true" 
+                        webkitallowfullscreen="true" 
+                        mozallowfullscreen="true" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    ></iframe>
+                </div>
+            </div>
+
+            <!-- Metadata & Action Toolbar -->
+            <div class="glass-panel rounded-2xl p-5 border border-dark-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                    <h2 id="videoTitle" class="text-base sm:text-lg font-bold text-white tracking-tight break-words mb-2">
+                        🎬 {{ initial_data.title }}
+                    </h2>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span id="badgeSize" class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-dark-bg text-slate-300 border border-dark-border">
+                            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-brand-400"></i>
+                            <span id="sizeText">{{ initial_data.size }}</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
+                            <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                            <span>Zero Ads / Direct HLS</span>
+                        </span>
+                        <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-brand-950/60 text-brand-400 border border-brand-800/50">
+                            <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
+                            <span>Cloudflare Bypassed</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Primary Action Buttons (Download & Share) -->
+                <div class="flex flex-wrap items-center gap-2.5 shrink-0">
+                    <a 
+                        id="downloadBtn" 
+                        href="{{ initial_data.download_url or '#' }}" 
+                        target="_blank"
+                        class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-glow transition flex items-center gap-2 text-xs sm:text-sm {% if not initial_data.download_url %}hidden{% endif %}"
+                    >
+                        <i data-lucide="download" class="w-4 h-4"></i>
+                        <span>Download HD File</span>
+                    </a>
+                    <button id="copyStreamUrlBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
+                        <i data-lucide="copy" class="w-4 h-4 text-brand-400"></i>
+                        <span>Copy Stream Link</span>
+                    </button>
+                    <button id="copyShareBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
+                        <i data-lucide="share-2" class="w-4 h-4 text-indigo-400"></i>
+                        <span>Share</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Multi-Video Folder Playlist (If album/folder contains multiple videos) -->
+            <div id="playlistSection" class="{% if not initial_data.playlist or initial_data.playlist|length <= 1 %}hidden{% endif %} glass-panel rounded-2xl p-5 border border-dark-border">
+                <div class="flex items-center gap-2 mb-3">
+                    <i data-lucide="layers" class="w-5 h-5 text-brand-400"></i>
+                    <h3 class="font-heading font-bold text-base text-white">Files in this Share Folder (<span id="playlistCount">{{ initial_data.playlist|length }}</span>)</h3>
+                </div>
+                <div id="playlistGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {% for item in initial_data.playlist %}
+                    <div onclick="playPlaylistItem({{ item.index }})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 transition cursor-pointer flex items-center gap-3 group">
+                        <div class="w-16 h-12 bg-black rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
+                            <img src="{{ item.thumbnail or '' }}" onerror="this.style.display='none'" class="w-full h-full object-cover">
+                            <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 flex items-center justify-center transition">
+                                <i data-lucide="play" class="w-4 h-4 text-white fill-white"></i>
+                            </div>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-semibold text-white truncate group-hover:text-brand-400 transition">{{ item.title }}</p>
+                            <span class="text-[11px] text-slate-400">{{ item.size }}</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+        </section>
+
+        <!-- Watchlist / Recent Links History Modal / Drawer -->
+        <section id="historySection" class="glass-panel rounded-2xl p-6 border border-dark-border">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="history" class="w-5 h-5 text-brand-400"></i>
+                    <h3 class="font-heading font-bold text-lg text-white">Recent Watchlist</h3>
+                    <span id="historyCount" class="text-xs bg-dark-bg text-slate-400 px-2 py-0.5 rounded-full border border-dark-border">0</span>
+                </div>
+                <button id="clearHistoryBtn" class="text-xs text-slate-400 hover:text-rose-400 transition flex items-center gap-1">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    <span>Clear All</span>
+                </button>
+            </div>
+
+            <div id="historyList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                <!-- Dynamically populated via JS -->
+            </div>
+            <div id="noHistoryMessage" class="text-center py-8 text-slate-500 text-sm">
+                <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+                No recently streamed videos yet. Paste any TeraBox link above to start!
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="w-full border-t border-dark-border py-6 mt-12 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+                <span>⚡ TeraStream Pro Engine</span>
+                <span>•</span>
+                <span>Direct High-Speed HLS Streaming Architecture</span>
+            </div>
+            <p>100% Free • Zero Ads • Hardware Accelerated Playback</p>
+        </div>
+    </footer>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 glass-panel border border-brand-500/40 text-white px-4 py-3 rounded-xl shadow-glow flex items-center gap-3 text-xs sm:text-sm font-medium">
+        <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
+        <span id="toastMessage">Link copied to clipboard!</span>
+    </div>
+
+    <!-- Client-Side App Logic -->
+    <script>
+        lucide.createIcons();
+
+        // Initial Data injected from Flask
+        let currentData = {{ initial_data | tojson | safe }};
+        let currentPlaylist = currentData.playlist || [];
+        let hlsInstance = null;
+        let plyrPlayer = null;
+        let isTheater = false;
+
+        // Elements
+        const streamForm = document.getElementById('streamForm');
+        const urlInput = document.getElementById('urlInput');
+        const pasteBtn = document.getElementById('pasteBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const submitBtn = document.getElementById('submitBtn');
+        const errorBox = document.getElementById('errorBox');
+        const errorMessage = document.getElementById('errorMessage');
+        const loadingState = document.getElementById('loadingState');
+        const playerSection = document.getElementById('playerSection');
+        const nativePlayerContainer = document.getElementById('nativePlayerContainer');
+        const iframePlayerContainer = document.getElementById('iframePlayerContainer');
+        const nativeVideo = document.getElementById('nativeVideo');
+        const videoIframe = document.getElementById('videoIframe');
+        const videoTitle = document.getElementById('videoTitle');
+        const sizeText = document.getElementById('sizeText');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const copyStreamUrlBtn = document.getElementById('copyStreamUrlBtn');
+        const copyShareBtn = document.getElementById('copyShareBtn');
+        const theaterBtn = document.getElementById('theaterBtn');
+        const reloadPlayerBtn = document.getElementById('reloadPlayerBtn');
+        const mainContainer = document.getElementById('mainContainer');
+        const playlistSection = document.getElementById('playlistSection');
+        const playlistGrid = document.getElementById('playlistGrid');
+        const playlistCount = document.getElementById('playlistCount');
+        const toast = document.getElementById('toast');
+        const toastMessage = document.getElementById('toastMessage');
+
+        function showToast(msg) {
+            toastMessage.textContent = msg;
+            toast.classList.remove('translate-y-20', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.remove('translate-y-0', 'opacity-100');
+                toast.classList.add('translate-y-20', 'opacity-0');
+            }, 3000);
+        }
+
+        // Initialize Plyr
+        function initPlyr() {
+            if (!plyrPlayer) {
+                plyrPlayer = new Plyr(nativeVideo, {
+                    controls: [
+                        'play-large', 'play', 'progress', 'current-time', 'duration',
+                        'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
+                    ],
+                    settings: ['speed', 'quality'],
+                    speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+                    autoplay: true,
+                    keyboard: { focused: true, global: true }
+                });
+            }
+        }
+
+        // Load HLS Video Stream
+        function loadHlsStream(streamUrl, posterUrl) {
+            nativePlayerContainer.classList.remove('hidden');
+            iframePlayerContainer.classList.add('hidden');
+
+            if (posterUrl) {
+                nativeVideo.poster = posterUrl;
+            }
+
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+
+            if (Hls.isSupported() && streamUrl) {
+                hlsInstance = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: false,
+                    startLevel: -1,
+                    maxBufferLength: 30,
+                    maxMaxBufferLength: 60,
+                    backBufferLength: 30,
+                });
+
+                hlsInstance.loadSource(streamUrl);
+                hlsInstance.attachMedia(nativeVideo);
+
+                hlsInstance.on(Hls.Events.MANIFEST_PARSED, function () {
+                    initPlyr();
+                    nativeVideo.play().catch(() => {});
+                });
+
+                hlsInstance.on(Hls.Events.ERROR, function (event, data) {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                hlsInstance.startLoad();
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                hlsInstance.recoverMediaError();
+                                break;
+                            default:
+                                hlsInstance.destroy();
+                                break;
+                        }
+                    }
+                });
+            } else if (nativeVideo.canPlayType('application/vnd.apple.mpegurl')) {
+                nativeVideo.src = streamUrl;
+                initPlyr();
+            } else {
+                // Fallback to Iframe
+                loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
+            }
+        }
+
+        // Fallback to Iframe Mirror
+        function loadIframeMirror(embedUrl) {
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+            if (nativeVideo) {
+                nativeVideo.pause();
+            }
+
+            nativePlayerContainer.classList.add('hidden');
+            iframePlayerContainer.classList.remove('hidden');
+            videoIframe.src = embedUrl;
+        }
+
+        // Theater Mode
+        theaterBtn.addEventListener('click', () => {
+            isTheater = !isTheater;
+            mainContainer.classList.toggle('theater-mode', isTheater);
+            theaterBtn.classList.toggle('text-brand-400', isTheater);
+            showToast(isTheater ? 'Theater Mode Enabled' : 'Normal View Restored');
+        });
+
+        // Reload Player
+        reloadPlayerBtn.addEventListener('click', () => {
+            if (currentData && currentData.stream_url) {
+                loadHlsStream(currentData.stream_url, currentData.thumbnail);
+            }
+            showToast('Reloading player...');
+        });
+
+        // Copy actions
+        copyStreamUrlBtn.addEventListener('click', () => {
+            const urlToCopy = currentData.stream_url || window.location.href;
+            navigator.clipboard.writeText(urlToCopy);
+            showToast('M3U8 Stream URL copied!');
+        });
+
+        copyShareBtn.addEventListener('click', () => {
+            const shareUrl = `${window.location.origin}/play/${currentData.surl}`;
+            navigator.clipboard.writeText(shareUrl);
+            showToast('Shareable Link copied!');
+        });
+
+        // LocalStorage History
+        const HISTORY_KEY = 'terastream_native_history';
+
+        function getHistory() {
+            try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); }
+            catch { return []; }
+        }
+
+        function saveToHistory(item) {
+            let list = getHistory().filter(x => x.surl !== item.surl);
+            list.unshift(item);
+            if (list.length > 20) list = list.slice(0, 20);
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const list = getHistory();
+            document.getElementById('historyCount').textContent = list.length;
+            const historyList = document.getElementById('historyList');
+            const noHistoryMessage = document.getElementById('noHistoryMessage');
+
+            if (list.length === 0) {
+                historyList.innerHTML = '';
+                noHistoryMessage.classList.remove('hidden');
+                return;
+            }
+            noHistoryMessage.classList.add('hidden');
+            historyList.innerHTML = list.map(item => `
+                <div class="glass-panel p-3.5 rounded-xl border border-dark-border hover:border-brand-500/40 transition group flex flex-col justify-between gap-3">
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-1.5">
+                            <span class="text-[11px] font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20">HD Video</span>
+                            <span class="text-[10px] text-slate-400">${item.size || 'HD'}</span>
+                        </div>
+                        <h5 class="text-xs font-semibold text-white truncate" title="${item.title}">${item.title}</h5>
+                    </div>
+                    <div class="flex items-center gap-2 pt-2 border-t border-dark-border/60">
+                        <button onclick="playFromHistory('${item.surl}', '${encodeURIComponent(item.originalUrl || '')}')" class="flex-1 bg-brand-600/30 hover:bg-brand-600 text-brand-300 hover:text-white py-1.5 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                            <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+                            <span>Play</span>
+                        </button>
+                        <button onclick="removeFromHistory('${item.surl}')" class="p-1.5 text-slate-500 hover:text-rose-400 rounded-lg hover:bg-dark-card transition">
+                            <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        window.removeFromHistory = function(surl) {
+            let list = getHistory().filter(x => x.surl !== surl);
+            localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
+            renderHistory();
+        };
+
+        window.playFromHistory = function(surl, encodedUrl) {
+            const url = decodeURIComponent(encodedUrl) || `https://teraboxshare.com/s/1${surl}`;
+            urlInput.value = url;
+            streamForm.dispatchEvent(new Event('submit'));
+        };
+
+        document.getElementById('clearHistoryBtn').addEventListener('click', () => {
+            localStorage.removeItem(HISTORY_KEY);
+            renderHistory();
+            showToast('Watchlist cleared');
+        });
+
+        // Multi-Video Playlist Selection
+        window.playPlaylistItem = function(index) {
+            if (!currentPlaylist[index]) return;
+            const item = currentPlaylist[index];
+            videoTitle.textContent = `🎬 ${item.title}`;
+            sizeText.textContent = item.size || 'HD Video';
+
+            if (item.download_url) {
+                downloadBtn.href = item.download_url;
+                downloadBtn.classList.remove('hidden');
+            } else {
+                downloadBtn.classList.add('hidden');
+            }
+
+            if (item.stream_url) {
+                currentData.stream_url = item.stream_url;
+                loadHlsStream(item.stream_url, item.thumbnail);
+            }
+            showToast(`Playing: ${item.title}`);
+        };
+
+        // Form Submit Handler
+        streamForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const inputVal = urlInput.value.trim();
+            if (!inputVal) return;
+
+            errorBox.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+            playerSection.classList.add('hidden');
+            submitBtn.disabled = true;
+
+            try {
+                const res = await fetch('/api/resolve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: inputVal })
+                });
+
+                const data = await res.json();
+
+                if (!res.ok || !data.success) {
+                    throw new Error(data.error || 'Failed to resolve video stream');
+                }
+
+                currentData = data;
+                currentPlaylist = data.playlist || [];
+
+                videoTitle.textContent = `🎬 ${data.title}`;
+                sizeText.textContent = data.size || 'HD Video';
+
+                // Download Button
+                if (data.download_url) {
+                    downloadBtn.href = data.download_url;
+                    downloadBtn.classList.remove('hidden');
+                } else {
+                    downloadBtn.classList.add('hidden');
+                }
+
+                // Playlist
+                if (currentPlaylist.length > 1) {
+                    playlistCount.textContent = currentPlaylist.length;
+                    playlistGrid.innerHTML = currentPlaylist.map(item => `
+                        <div onclick="playPlaylistItem(${item.index})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 transition cursor-pointer flex items-center gap-3 group">
+                            <div class="w-16 h-12 bg-black rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
+                                <img src="${item.thumbnail || ''}" onerror="this.style.display='none'" class="w-full h-full object-cover">
+                                <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 flex items-center justify-center transition">
+                                    <i data-lucide="play" class="w-4 h-4 text-white fill-white"></i>
+                                </div>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-xs font-semibold text-white truncate group-hover:text-brand-400 transition">${item.title}</p>
+                                <span class="text-[11px] text-slate-400">${item.size}</span>
+                            </div>
+                        </div>
+                    `).join('');
+                    playlistSection.classList.remove('hidden');
+                } else {
+                    playlistSection.classList.add('hidden');
+                }
+
+                // Load Native HLS Stream
+                playerSection.classList.remove('hidden');
+
+                if (data.stream_url) {
+                    loadHlsStream(data.stream_url, data.thumbnail);
+                } else {
+                    loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${data.surl}`);
+                }
+
+                saveToHistory({
+                    surl: data.surl,
+                    title: data.title,
+                    size: data.size,
+                    originalUrl: inputVal,
+                    timestamp: Date.now()
+                });
+
+                showToast('Video ready for streaming!');
+                playerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            } catch (err) {
+                errorMessage.textContent = err.message;
+                errorBox.classList.remove('hidden');
+            } finally {
+                loadingState.classList.add('hidden');
+                submitBtn.disabled = false;
+                lucide.createIcons();
+            }
+        });
+
+        // Setup input helpers
+        urlInput.addEventListener('input', () => {
+            clearBtn.classList.toggle('hidden', !urlInput.value);
+            errorBox.classList.add('hidden');
+        });
+
+        clearBtn.addEventListener('click', () => {
+            urlInput.value = '';
+            clearBtn.classList.add('hidden');
+            urlInput.focus();
+        });
+
+        pasteBtn.addEventListener('click', async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text) {
+                    urlInput.value = text;
+                    clearBtn.classList.remove('hidden');
+                    urlInput.focus();
+                }
+            } catch (e) {
+                showToast('Unable to read clipboard');
+            }
+        });
+
+        // Initialize on load
+        renderHistory();
+        if (currentData && currentData.stream_url) {
+            loadHlsStream(currentData.stream_url, currentData.thumbnail);
+        } else if (currentData) {
+            loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
+        }
+    </script>
+</body>
+</html>
