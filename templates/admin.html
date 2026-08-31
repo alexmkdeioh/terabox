@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Panel - TeraStream Pro User Search Logs</title>
+    <!-- Google Fonts & Tailwind -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Plus Jakarta Sans', 'sans-serif'],
+                        heading: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            400: '#38bdf8',
+                            500: '#0ea5e9',
+                            600: '#0284c7',
+                        },
+                        dark: {
+                            bg: '#070b14',
+                            card: '#0f172a',
+                            cardAlt: '#131d35',
+                            border: '#1e293b'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-[#070b14] text-slate-100 min-h-screen flex flex-col font-sans selection:bg-brand-500 selection:text-white">
+
+    <!-- Header -->
+    <header class="w-full bg-dark-card/80 backdrop-blur-md border-b border-dark-border sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-md">
+                    <i data-lucide="shield" class="w-5 h-5 text-white"></i>
+                </div>
+                <div>
+                    <h1 class="font-heading font-bold text-lg text-white">TeraStream Admin Panel</h1>
+                    <p class="text-[11px] text-slate-400">User Searches & Activity Analytics</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <a href="/" target="_blank" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border transition flex items-center gap-1.5">
+                    <i data-lucide="external-link" class="w-3.5 h-3.5 text-brand-400"></i>
+                    <span>Live Player</span>
+                </a>
+                <a href="/admin/logout" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 transition flex items-center gap-1.5">
+                    <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
+                    <span>Logout</span>
+                </a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col gap-6">
+
+        <!-- Stats Overview Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Total Searches</span>
+                    <i data-lucide="search" class="w-4 h-4 text-brand-400"></i>
+                </div>
+                <div class="font-heading text-2xl sm:text-3xl font-extrabold text-white">{{ stats.total_searches }}</div>
+                <p class="text-[11px] text-slate-500 mt-1">All recorded queries</p>
+            </div>
+
+            <div class="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Unique Links</span>
+                    <i data-lucide="link" class="w-4 h-4 text-indigo-400"></i>
+                </div>
+                <div class="font-heading text-2xl sm:text-3xl font-extrabold text-white">{{ stats.unique_links }}</div>
+                <p class="text-[11px] text-slate-500 mt-1">Distinct video shares</p>
+            </div>
+
+            <div class="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Searches Today</span>
+                    <i data-lucide="clock" class="w-4 h-4 text-emerald-400"></i>
+                </div>
+                <div class="font-heading text-2xl sm:text-3xl font-extrabold text-white">{{ stats.today_searches }}</div>
+                <p class="text-[11px] text-slate-500 mt-1">Last 24 hours</p>
+            </div>
+
+            <div class="bg-dark-card border border-dark-border rounded-2xl p-5 shadow-lg">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-slate-400">Unique Users / IPs</span>
+                    <i data-lucide="users" class="w-4 h-4 text-amber-400"></i>
+                </div>
+                <div class="font-heading text-2xl sm:text-3xl font-extrabold text-white">{{ stats.unique_ips }}</div>
+                <p class="text-[11px] text-slate-500 mt-1">Distinct IP addresses</p>
+            </div>
+        </div>
+
+        <!-- Logs Table Section -->
+        <div class="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-xl flex flex-col gap-4">
+            
+            <!-- Table Header Tools -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                    <h2 class="font-heading font-bold text-lg text-white">Search History Log</h2>
+                    <p class="text-xs text-slate-400">Real-time log of every link pasted and searched by visitors</p>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <a href="/admin/export/csv" class="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition flex items-center gap-1.5">
+                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                        <span>Export CSV</span>
+                    </a>
+                    <a href="/admin/clear" onclick="return confirm('Are you sure you want to delete all search logs?');" class="px-3.5 py-2 bg-dark-cardAlt hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-dark-border rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>Clear All Logs</span>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Search Filter Input -->
+            <div class="relative">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
+                <input 
+                    type="text" 
+                    id="tableSearch" 
+                    placeholder="Search by title, URL, surl, or IP..." 
+                    class="w-full bg-[#070b14] border border-dark-border rounded-xl pl-10 pr-4 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500"
+                >
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto border border-dark-border/60 rounded-xl">
+                <table class="w-full text-left text-xs text-slate-300">
+                    <thead class="bg-dark-cardAlt/80 text-slate-400 font-semibold border-b border-dark-border uppercase text-[10px] tracking-wider">
+                        <tr>
+                            <th class="p-3.5">ID</th>
+                            <th class="p-3.5">Time</th>
+                            <th class="p-3.5">Video Title</th>
+                            <th class="p-3.5">Size</th>
+                            <th class="p-3.5">User IP & Device</th>
+                            <th class="p-3.5">Searched URL</th>
+                            <th class="p-3.5 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="logsTableBody" class="divide-y divide-dark-border/60">
+                        {% for log in logs %}
+                        <tr class="hover:bg-slate-800/40 transition">
+                            <td class="p-3.5 font-mono text-slate-500">#{{ log.id }}</td>
+                            <td class="p-3.5 whitespace-nowrap text-slate-400">{{ log.created_at }}</td>
+                            <td class="p-3.5 max-w-[220px] truncate font-semibold text-white" title="{{ log.video_title }}">
+                                🎬 {{ log.video_title or 'Untitled Video' }}
+                            </td>
+                            <td class="p-3.5 whitespace-nowrap">
+                                <span class="bg-dark-bg px-2 py-0.5 rounded text-brand-400 border border-dark-border font-medium">{{ log.video_size or 'HD' }}</span>
+                            </td>
+                            <td class="p-3.5 whitespace-nowrap">
+                                <div class="font-mono text-slate-300">{{ log.user_ip or 'Unknown' }}</div>
+                                <div class="text-[10px] text-slate-500 max-w-[150px] truncate" title="{{ log.user_agent }}">{{ log.user_agent or 'Browser' }}</div>
+                            </td>
+                            <td class="p-3.5 max-w-[200px] truncate" title="{{ log.searched_url }}">
+                                <a href="{{ log.searched_url }}" target="_blank" class="text-brand-400 hover:underline flex items-center gap-1 truncate">
+                                    <span>{{ log.searched_url }}</span>
+                                </a>
+                            </td>
+                            <td class="p-3.5 text-right whitespace-nowrap">
+                                <div class="flex items-center justify-end gap-1.5">
+                                    <a href="/play/{{ log.surl }}" target="_blank" class="p-1.5 rounded-lg bg-brand-600/20 hover:bg-brand-600 text-brand-300 hover:text-white transition" title="Play Video">
+                                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
+                                    </a>
+                                    {% if log.download_url %}
+                                    <a href="{{ log.download_url }}" target="_blank" class="p-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600 text-emerald-300 hover:text-white transition" title="Download File">
+                                        <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                                    </a>
+                                    {% endif %}
+                                    <a href="/admin/delete/{{ log.id }}" onclick="return confirm('Delete this record?');" class="p-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600 text-rose-300 hover:text-white transition" title="Delete">
+                                        <i data-lucide="trash" class="w-3.5 h-3.5"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="7" class="text-center py-12 text-slate-500">
+                                <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
+                                No user searches logged yet.
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        lucide.createIcons();
+
+        // Client-side table search filter
+        const tableSearch = document.getElementById('tableSearch');
+        const rows = document.querySelectorAll('#logsTableBody tr');
+
+        tableSearch.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            rows.forEach(row => {
+                const text = row.innerText.toLowerCase();
+                row.style.display = text.includes(query) ? '' : 'none';
+            });
+        });
+    </script>
+</body>
+</html>
