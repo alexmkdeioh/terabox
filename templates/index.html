@@ -196,10 +196,8 @@
                 <h3 class="text-lg font-bold text-white mb-1">Extracting Direct HLS Stream</h3>
                 <p class="text-xs text-slate-400">Connecting to high-speed CDN nodes & generating master playlist...</p>
             </div>
-        </div>
-
-        <!-- Video Player Display Container -->
-        <section id="playerSection" class="flex flex-col gap-3">
+        </div>        <!-- Video Player Display Container -->
+        <section id="playerSection" class="{% if not initial_data %}hidden{% endif %} flex flex-col gap-3">
             
             <!-- Player Toolbar -->
             <div class="glass-panel rounded-xl px-4 py-2.5 border border-dark-border flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -234,7 +232,7 @@
                         controls 
                         playsinline 
                         preload="auto"
-                        poster="{{ initial_data.thumbnail or '' }}"
+                        poster="{{ initial_data.thumbnail if initial_data and initial_data.thumbnail else '' }}"
                     ></video>
                 </div>
 
@@ -257,12 +255,12 @@
             <div class="glass-panel rounded-2xl p-5 border border-dark-border flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex-1 min-w-0">
                     <h2 id="videoTitle" class="text-base sm:text-lg font-bold text-white tracking-tight break-words mb-2">
-                        🎬 {{ initial_data.title }}
+                        🎬 {{ initial_data.title if initial_data else 'TeraBox Video Stream' }}
                     </h2>
                     <div class="flex flex-wrap items-center gap-2">
                         <span id="badgeSize" class="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-md bg-dark-bg text-slate-300 border border-dark-border">
                             <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-brand-400"></i>
-                            <span id="sizeText">{{ initial_data.size }}</span>
+                            <span id="sizeText">{{ initial_data.size if initial_data else 'HD Video' }}</span>
                         </span>
                         <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-emerald-950/60 text-emerald-400 border border-emerald-800/50">
                             <i data-lucide="zap" class="w-3.5 h-3.5"></i>
@@ -279,9 +277,9 @@
                 <div class="flex flex-wrap items-center gap-2.5 shrink-0">
                     <a 
                         id="downloadBtn" 
-                        href="{{ initial_data.download_url or '#' }}" 
+                        href="{{ initial_data.download_url if initial_data and initial_data.download_url else '#' }}" 
                         target="_blank"
-                        class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-glow transition flex items-center gap-2 text-xs sm:text-sm {% if not initial_data.download_url %}hidden{% endif %}"
+                        class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-glow transition flex items-center gap-2 text-xs sm:text-sm {% if not initial_data or not initial_data.download_url %}hidden{% endif %}"
                     >
                         <i data-lucide="download" class="w-4 h-4"></i>
                         <span>Download HD File</span>
@@ -298,12 +296,13 @@
             </div>
 
             <!-- Multi-Video Folder Playlist (If album/folder contains multiple videos) -->
-            <div id="playlistSection" class="{% if not initial_data.playlist or initial_data.playlist|length <= 1 %}hidden{% endif %} glass-panel rounded-2xl p-5 border border-dark-border">
+            <div id="playlistSection" class="{% if not initial_data or not initial_data.playlist or initial_data.playlist|length <= 1 %}hidden{% endif %} glass-panel rounded-2xl p-5 border border-dark-border">
                 <div class="flex items-center gap-2 mb-3">
                     <i data-lucide="layers" class="w-5 h-5 text-brand-400"></i>
-                    <h3 class="font-heading font-bold text-base text-white">Files in this Share Folder (<span id="playlistCount">{{ initial_data.playlist|length }}</span>)</h3>
+                    <h3 class="font-heading font-bold text-base text-white">Files in this Share Folder (<span id="playlistCount">{{ initial_data.playlist|length if initial_data and initial_data.playlist else 0 }}</span>)</h3>
                 </div>
                 <div id="playlistGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {% if initial_data and initial_data.playlist %}
                     {% for item in initial_data.playlist %}
                     <div onclick="playPlaylistItem({{ item.index }})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 transition cursor-pointer flex items-center gap-3 group">
                         <div class="w-16 h-12 bg-black rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
@@ -318,6 +317,7 @@
                         </div>
                     </div>
                     {% endfor %}
+                    {% endif %}
                 </div>
             </div>
 
@@ -371,8 +371,8 @@
         lucide.createIcons();
 
         // Initial Data injected from Flask
-        let currentData = {{ initial_data | tojson | safe }};
-        let currentPlaylist = currentData.playlist || [];
+        let currentData = {{ initial_data | tojson | safe if initial_data else 'null' }};
+        let currentPlaylist = (currentData && currentData.playlist) ? currentData.playlist : [];
         let hlsInstance = null;
         let plyrPlayer = null;
         let isTheater = false;

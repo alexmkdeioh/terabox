@@ -217,13 +217,18 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
 @app.route('/')
 def index():
     query_url = request.args.get('url') or request.args.get('surl')
-    target = query_url if query_url else DEFAULT_URL
-    info = resolve_terabox_stream(target)
+    if query_url:
+        info = resolve_terabox_stream(query_url)
+        return render_template(
+            "index.html",
+            initial_data=info,
+            initial_url=query_url
+        )
     
     return render_template(
         "index.html",
-        initial_data=info,
-        initial_url=target
+        initial_data=None,
+        initial_url=""
     )
 
 
