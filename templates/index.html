@@ -740,7 +740,7 @@
         renderHistory();
         if (currentData && currentData.stream_url) {
             loadHlsStream(currentData.stream_url, currentData.thumbnail);
-        } else if (currentData) {
+        } else if (currentData && currentData.surl) {
             loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
         }
     </script>

@@ -9,8 +9,6 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, R
 app = Flask(__name__, template_folder="templates")
 PORT = int(os.environ.get("PORT", 8080))
 
-DEFAULT_URL = "https://teraboxshare.com/s/1zQn47gsm4Q1ny1GTNfnGDA"
-DEFAULT_SURL = "zQn47gsm4Q1ny1GTNfnGDA"
 
 # Global session cache for high-speed resolution
 FLOW_SESSION = {
@@ -141,7 +139,7 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
     """
     clean_surl = extract_surl(raw_url_or_surl)
     if not clean_surl:
-        clean_surl = DEFAULT_SURL
+        return {"success": False, "error": "Please enter a valid TeraBox share link."}
 
     full_surl = f"1{clean_surl}"
     target_link = f"https://teraboxshare.com/s/{full_surl}"
