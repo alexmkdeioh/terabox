@@ -219,22 +219,22 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                 'X-Requested-With': 'XMLHttpRequest',
             }
 
-            # Build smart candidate links (including user's original URL and all share patterns)
+            # Internal Auto-Correction: Normalize every link to the highest-performing TeraBox domains
             clean_raw = raw_url_or_surl.strip().replace(" ", "")
-            candidate_links = []
-            if clean_raw.startswith("http"):
-                candidate_links.append(clean_raw)
-
-            candidate_links.extend([
-                f"https://www.terabox.app/wap/share/filelist?surl={clean_surl}",
+            candidate_links = [
+                f"https://teraboxlink.com/s/1{clean_surl}",
                 f"https://1024tera.com/s/1{clean_surl}",
                 f"https://teraboxshare.com/s/1{clean_surl}",
+                f"https://www.terabox.app/wap/share/filelist?surl={clean_surl}",
                 f"https://terabox.app/s/1{clean_surl}",
+                f"https://terafileshare.com/s/1{clean_surl}",
                 f"https://terasharefile.com/s/1{clean_surl}",
                 f"https://1024tera.com/s/{clean_surl}",
                 f"https://terabox.app/s/{clean_surl}",
                 f"https://www.terabox.com/sharing/link?surl={clean_surl}"
-            ])
+            ]
+            if clean_raw.startswith("http"):
+                candidate_links.append(clean_raw)
 
             seen = set()
             unique_candidates = [x for x in candidate_links if not (x in seen or seen.add(x))]
