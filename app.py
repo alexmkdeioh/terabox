@@ -137,46 +137,56 @@ def get_flow_session():
 
 
 def extract_surl(raw_input: str) -> str:
-    """Extracts the clean shorturl (surl) from any TeraBox link format."""
+    """Extracts the clean shorturl (surl) from ANY TeraBox / TeraShare / TeraBoxLink format."""
     if not raw_input:
         return ""
-    clean_input = raw_input.strip()
     
+    # Strip all inner and outer whitespaces
+    clean_input = re.sub(r'\s+', '', raw_input.strip())
+    
+    # 1. Query parameters (?surl=... or ?shorturl=... or ?key=...)
     if "?" in clean_input:
         try:
             parsed = urlparse(clean_input)
             qs = parse_qs(parsed.query)
-            if "surl" in qs and qs["surl"]:
-                surl = qs["surl"][0]
-                return surl[1:] if surl.startswith("1") else surl
-            if "shorturl" in qs and qs["shorturl"]:
-                surl = qs["shorturl"][0]
-                return surl[1:] if surl.startswith("1") else surl
+            for k in ["surl", "shorturl", "key"]:
+                if k in qs and qs[k]:
+                    surl = qs[k][0]
+                    return surl[1:] if surl.startswith("1") else surl
         except Exception:
             pass
 
-    match = re.search(r'/s/(?:1)?([a-zA-Z0-9_-]+)', clean_input)
+    # 2. Regex for /s/1... or /s/...
+    match = re.search(r'/s/(?:1)?([a-zA-Z0-9_-]{10,40})', clean_input)
     if match:
         return match.group(1)
-    
-    match_embed = re.search(r'surl=(?:1)?([a-zA-Z0-9_-]+)', clean_input)
-    if match_embed:
-        return match_embed.group(1)
 
-    if re.match(r'^[1]?[a-zA-Z0-9_-]{10,40}$', clean_input):
-        return clean_input[1:] if clean_input.startswith("1") else clean_input
+    # 3. Regex for surl=...
+    match_surl = re.search(r'surl=(?:1)?([a-zA-Z0-9_-]{10,40})', clean_input)
+    if match_surl:
+        return match_surl.group(1)
+
+    # 4. Regex for /share/link, /sharing/link, or /share/file
+    match_share = re.search(r'/share(?:ing)?/(?:link|file|init)?.*?1?([a-zA-Z0-9_-]{10,40})', clean_input)
+    if match_share:
+        return match_share.group(1)
+
+    # 5. Raw key format
+    match_raw = re.search(r'\b1?([a-zA-Z0-9_-]{15,40})\b', clean_input)
+    if match_raw:
+        val = match_raw.group(1)
+        return val[1:] if val.startswith("1") else val
 
     return ""
 
 
 def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
-    """Extracts direct HLS stream (.m3u8), download link, thumbnails, and metadata."""
+    """Extracts direct HLS stream (.m3u8), download link, thumbnails, and metadata for any TeraBox link."""
     clean_surl = extract_surl(raw_url_or_surl)
     if not clean_surl:
         return {"success": False, "error": "Please enter a valid TeraBox share link."}
 
     full_surl = f"1{clean_surl}"
-    target_link = f"https://teraboxshare.com/s/{full_surl}"
 
     result = {
         "success": True,
@@ -209,33 +219,42 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                 'X-Requested-With': 'XMLHttpRequest',
             }
 
-            resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json()
-                if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
-                    video_list = data["response"]
-                    first_video = video_list[0]
+            # Try candidate link formats
+            candidate_links = [
+                f"https://1024tera.com/s/{full_surl}",
+                f"https://teraboxshare.com/s/{full_surl}",
+                f"https://terabox.app/s/{full_surl}",
+                f"https://terasharefile.com/s/{full_surl}"
+            ]
 
-                    result["title"] = first_video.get("file_name") or "TeraBox Video Stream"
-                    result["size"] = first_video.get("file_size") or "HD Video"
-                    result["size_bytes"] = first_video.get("file_size_bytes") or 0
-                    result["thumbnail"] = first_video.get("thumbnail")
-                    result["stream_url"] = first_video.get("fast_stream_url")
-                    result["download_url"] = first_video.get("download_url")
-                    result["is_hls"] = bool(result["stream_url"])
+            for target_link in candidate_links:
+                resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=8)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
+                        video_list = data["response"]
+                        first_video = video_list[0]
 
-                    playlist = []
-                    for idx, v in enumerate(video_list):
-                        playlist.append({
-                            "index": idx,
-                            "title": v.get("file_name") or f"Part {idx+1}",
-                            "size": v.get("file_size") or "",
-                            "thumbnail": v.get("thumbnail"),
-                            "stream_url": v.get("fast_stream_url"),
-                            "download_url": v.get("download_url")
-                        })
-                    result["playlist"] = playlist
-                    return result
+                        result["title"] = first_video.get("file_name") or "TeraBox Video Stream"
+                        result["size"] = first_video.get("file_size") or "HD Video"
+                        result["size_bytes"] = first_video.get("file_size_bytes") or 0
+                        result["thumbnail"] = first_video.get("thumbnail")
+                        result["stream_url"] = first_video.get("fast_stream_url")
+                        result["download_url"] = first_video.get("download_url")
+                        result["is_hls"] = bool(result["stream_url"])
+
+                        playlist = []
+                        for idx, v in enumerate(video_list):
+                            playlist.append({
+                                "index": idx,
+                                "title": v.get("file_name") or f"Part {idx+1}",
+                                "size": v.get("file_size") or "",
+                                "thumbnail": v.get("thumbnail"),
+                                "stream_url": v.get("fast_stream_url"),
+                                "download_url": v.get("download_url")
+                            })
+                        result["playlist"] = playlist
+                        return result
         except Exception as e:
             print("Direct HLS extraction error:", e)
 

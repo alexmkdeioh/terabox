@@ -139,9 +139,18 @@
                 <h1 class="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white mb-2">
                     TeraBox <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>
                 </h1>
-                <p class="text-sm sm:text-base text-slate-400 mb-6">
+                <p class="text-sm sm:text-base text-slate-400 mb-3">
                     Stream your videos instantly with zero ads, bypass all Cloudflare limits, and download at maximum speed.
                 </p>
+                <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">terabox.app</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">1024tera.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">teraboxshare.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-400 font-mono">& all others</span>
+                </div>
             </div>
 
             <!-- Input Form -->
@@ -153,7 +162,7 @@
                     <input 
                         type="text" 
                         id="urlInput"
-                        placeholder="Paste link here (e.g., https://teraboxshare.com/s/1zQn47gsm4Q1ny1GTNfnGDA)" 
+                        placeholder="Paste any TeraBox / TeraShare / TeraBoxLink URL (e.g. terasharefile.com/s/..., terabox.app/s/...)" 
                         required
                         class="w-full glass-input rounded-xl pl-11 pr-24 py-3.5 text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 transition duration-200"
                     />
@@ -624,7 +633,7 @@
         // Form Submit Handler
         streamForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const inputVal = urlInput.value.trim();
+            const inputVal = urlInput.value.replace(/\s+/g, '').trim();
             if (!inputVal) return;
 
             errorBox.classList.add('hidden');
@@ -725,9 +734,9 @@
 
         pasteBtn.addEventListener('click', async () => {
             try {
-                const text = await navigator.clipboard.readText();
+                const text = (await navigator.clipboard.readText() || '').trim();
                 if (text) {
-                    urlInput.value = text;
+                    urlInput.value = text.replace(/\s+/g, '');
                     clearBtn.classList.remove('hidden');
                     urlInput.focus();
                 }
