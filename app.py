@@ -180,11 +180,22 @@ def extract_surl(raw_input: str) -> str:
     return ""
 
 
+# In-memory resolution cache for instant 0ms responses
+RESOLVE_CACHE = {}
+
+
 def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
-    """Extracts direct HLS stream (.m3u8), download link, thumbnails, and metadata for any TeraBox link."""
+    """Extracts direct HLS stream (.m3u8), download link, thumbnails, and metadata with high-speed caching."""
     clean_surl = extract_surl(raw_url_or_surl)
     if not clean_surl:
         return {"success": False, "error": "Please enter a valid TeraBox share link."}
+
+    # Check cache first for instant sub-millisecond response
+    now = time.time()
+    if clean_surl in RESOLVE_CACHE:
+        cached_time, cached_res = RESOLVE_CACHE[clean_surl]
+        if now - cached_time < 1200:  # 20 minutes cache
+            return cached_res
 
     full_surl = f"1{clean_surl}"
 
@@ -219,29 +230,20 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                 'X-Requested-With': 'XMLHttpRequest',
             }
 
-            # Internal Auto-Correction: Normalize every link to the highest-performing TeraBox domains
-            clean_raw = raw_url_or_surl.strip().replace(" ", "")
+            # Top high-performing canonical formats for instant resolution
             candidate_links = [
                 f"https://teraboxlink.com/s/1{clean_surl}",
                 f"https://1024tera.com/s/1{clean_surl}",
-                f"https://teraboxshare.com/s/1{clean_surl}",
-                f"https://www.terabox.app/wap/share/filelist?surl={clean_surl}",
-                f"https://terabox.app/s/1{clean_surl}",
-                f"https://terafileshare.com/s/1{clean_surl}",
-                f"https://terasharefile.com/s/1{clean_surl}",
-                f"https://1024tera.com/s/{clean_surl}",
-                f"https://terabox.app/s/{clean_surl}",
-                f"https://www.terabox.com/sharing/link?surl={clean_surl}"
+                f"https://www.terabox.app/wap/share/filelist?surl={clean_surl}"
             ]
-            if clean_raw.startswith("http"):
-                candidate_links.append(clean_raw)
 
-            seen = set()
-            unique_candidates = [x for x in candidate_links if not (x in seen or seen.add(x))]
+            clean_raw = raw_url_or_surl.strip().replace(" ", "")
+            if clean_raw.startswith("http") and "wap/share" in clean_raw:
+                candidate_links.insert(0, clean_raw)
 
-            for target_link in unique_candidates:
+            for target_link in candidate_links:
                 try:
-                    resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=10)
+                    resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=5)
                     if resp.status_code == 200:
                         data = resp.json()
                         if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
@@ -270,6 +272,9 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                                     "download_url": v.get("download_url")
                                 })
                             result["playlist"] = playlist
+
+                            # Save to memory cache for instant future loads
+                            RESOLVE_CACHE[clean_surl] = (time.time(), result)
                             return result
                 except Exception as inner_e:
                     continue
