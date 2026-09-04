@@ -19,9 +19,18 @@ DB_FILE = os.path.join(os.path.dirname(__file__), "terastream.db")
 
 # ----------------- DATABASE INITIALIZATION -----------------
 
+def get_db_conn():
+    conn = sqlite3.connect(DB_FILE, timeout=15)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
+    return conn
+
+
 def init_db():
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS search_logs (
@@ -45,14 +54,23 @@ init_db()
 
 
 def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
-    """Logs user searching query to SQLite database."""
+    """Guarantees every user search query is saved to SQLite database."""
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO search_logs (searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent))
+            ''', (
+                str(searched_url or ''),
+                str(surl or ''),
+                str(video_title or 'TeraBox Video'),
+                str(video_size or 'HD Video'),
+                str(stream_url or ''),
+                str(download_url or ''),
+                str(user_ip or '127.0.0.1'),
+                str(user_agent or 'Unknown')
+            ))
             conn.commit()
     except Exception as e:
         print("Log search error:", e)
@@ -296,6 +314,19 @@ def index():
     query_url = request.args.get('url') or request.args.get('surl')
     if query_url:
         info = resolve_terabox_stream(query_url)
+        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+        title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
+        log_search(
+            searched_url=query_url,
+            surl=info.get("surl") or extract_surl(query_url),
+            video_title=title_to_log,
+            video_size=info.get("size", "HD Video"),
+            stream_url=info.get("stream_url", ""),
+            download_url=info.get("download_url", ""),
+            user_ip=user_ip,
+            user_agent=user_agent
+        )
         return render_template(
             "index.html",
             initial_data=info if info.get("success") else None,
@@ -316,6 +347,19 @@ def play_surl(surl):
         return redirect(url_for('index'))
     
     info = resolve_terabox_stream(clean_surl)
+    user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+    title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
+    log_search(
+        searched_url=f"https://teraboxshare.com/s/1{clean_surl}",
+        surl=clean_surl,
+        video_title=title_to_log,
+        video_size=info.get("size", "HD Video"),
+        stream_url=info.get("stream_url", ""),
+        download_url=info.get("download_url", ""),
+        user_ip=user_ip,
+        user_agent=user_agent
+    )
     return render_template(
         "index.html",
         initial_data=info if info.get("success") else None,
@@ -335,8 +379,22 @@ def api_resolve():
     if not raw_input:
         return jsonify({"success": False, "error": "No TeraBox link provided."}), 400
 
+    user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
+    user_agent = request.headers.get('User-Agent', 'Unknown')
+
     surl = extract_surl(raw_input)
     if not surl:
+        # Save search link even if formatting failed so admin never misses a user attempt
+        log_search(
+            searched_url=raw_input,
+            surl="",
+            video_title="[Invalid Link Format]",
+            video_size="N/A",
+            stream_url="",
+            download_url="",
+            user_ip=user_ip,
+            user_agent=user_agent
+        )
         return jsonify({
             "success": False, 
             "error": "Invalid TeraBox link. Please provide a valid URL like https://teraboxshare.com/s/..."
@@ -344,20 +402,18 @@ def api_resolve():
 
     stream_info = resolve_terabox_stream(raw_input)
 
-    # Log user search activity
-    if stream_info.get("success"):
-        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
-        user_agent = request.headers.get('User-Agent', 'Unknown')
-        log_search(
-            searched_url=raw_input,
-            surl=stream_info.get("surl", ""),
-            video_title=stream_info.get("title", ""),
-            video_size=stream_info.get("size", ""),
-            stream_url=stream_info.get("stream_url", ""),
-            download_url=stream_info.get("download_url", ""),
-            user_ip=user_ip,
-            user_agent=user_agent
-        )
+    # Guaranteed logging for every search query (success or failed/expired)
+    title_to_log = stream_info.get("title") if stream_info.get("success") else f"[Unresolved / Expired: {stream_info.get('error', 'Error')}]"
+    log_search(
+        searched_url=raw_input,
+        surl=stream_info.get("surl") or surl,
+        video_title=title_to_log,
+        video_size=stream_info.get("size", "HD Video"),
+        stream_url=stream_info.get("stream_url", ""),
+        download_url=stream_info.get("download_url", ""),
+        user_ip=user_ip,
+        user_agent=user_agent
+    )
 
     return jsonify(stream_info)
 
@@ -451,7 +507,7 @@ def admin_dashboard():
     }
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -485,7 +541,7 @@ def admin_export_csv():
     writer.writerow(['ID', 'Timestamp', 'Video Title', 'Size', 'Searched URL', 'SURL', 'Stream URL', 'Download URL', 'User IP', 'User Agent'])
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC')
@@ -512,7 +568,7 @@ def admin_delete(log_id):
         return redirect(url_for('admin_login'))
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM search_logs WHERE id = ?', (log_id,))
             conn.commit()
@@ -528,7 +584,7 @@ def admin_clear():
         return redirect(url_for('admin_login'))
 
     try:
-        with sqlite3.connect(DB_FILE) as conn:
+        with get_db_conn() as conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM search_logs')
             conn.commit()
