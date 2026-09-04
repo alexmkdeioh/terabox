@@ -212,11 +212,11 @@
             <div class="glass-panel rounded-xl px-4 py-2.5 border border-dark-border flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    <span class="font-semibold text-white">Stream Status:</span>
-                    <span class="text-xs text-brand-400 bg-brand-500/10 px-2.5 py-1 rounded-lg border border-brand-500/20 font-semibold flex items-center gap-1.5">
-                        <i data-lucide="zap" class="w-3.5 h-3.5"></i>
-                        <span>High-Speed Direct Player</span>
-                    </span>
+                    <span class="font-semibold text-white">Stream Route:</span>
+                    <button id="streamRouteBtn" title="Click to switch between Direct CDN and Global Cloud Proxy (Bypasses Regional ISP blocks)" class="text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition">
+                        <i data-lucide="zap" id="streamRouteIcon" class="w-3.5 h-3.5"></i>
+                        <span id="streamRouteLabel">⚡ Direct CDN (Fast)</span>
+                    </button>
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -424,6 +424,32 @@
             }, 3000);
         }
 
+        let useProxyStream = false;
+        const streamRouteBtn = document.getElementById('streamRouteBtn');
+        const streamRouteLabel = document.getElementById('streamRouteLabel');
+        const streamRouteIcon = document.getElementById('streamRouteIcon');
+
+        function updateRouteUI() {
+            if (useProxyStream) {
+                streamRouteBtn.className = "text-xs text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 font-semibold flex items-center gap-1.5 transition";
+                streamRouteLabel.textContent = "🛡️ Global Cloud Proxy (Active)";
+            } else {
+                streamRouteBtn.className = "text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition";
+                streamRouteLabel.textContent = "⚡ Direct CDN (Fast)";
+            }
+        }
+
+        streamRouteBtn.addEventListener('click', () => {
+            if (!currentData) return;
+            useProxyStream = !useProxyStream;
+            updateRouteUI();
+            const targetStream = (useProxyStream && currentData.proxy_stream_url) ? currentData.proxy_stream_url : currentData.stream_url;
+            if (targetStream) {
+                loadHlsStream(targetStream, currentData.thumbnail);
+                showToast(useProxyStream ? 'Switched to Global Cloud Proxy (Bypasses Geo-Blocks)' : 'Switched to Direct CDN');
+            }
+        });
+
         // Initialize Plyr
         function initPlyr() {
             if (!plyrPlayer) {
@@ -476,7 +502,15 @@
                     if (data.fatal) {
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                hlsInstance.startLoad();
+                                // Auto-switch to cloud proxy if direct CDN is geo-blocked by local ISP
+                                if (!useProxyStream && currentData && currentData.proxy_stream_url) {
+                                    useProxyStream = true;
+                                    updateRouteUI();
+                                    showToast('ISP restriction detected. Auto-routing via Global Cloud Proxy...');
+                                    loadHlsStream(currentData.proxy_stream_url, currentData.thumbnail);
+                                } else {
+                                    hlsInstance.startLoad();
+                                }
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
                                 hlsInstance.recoverMediaError();

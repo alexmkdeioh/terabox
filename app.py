@@ -6,7 +6,7 @@ import json
 import time
 import sqlite3
 import requests
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
 
 app = Flask(__name__, template_folder="templates")
@@ -254,16 +254,19 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                             result["thumbnail"] = first_video.get("thumbnail")
                             result["stream_url"] = first_video.get("fast_stream_url")
                             result["download_url"] = first_video.get("download_url")
+                            result["proxy_stream_url"] = f"/api/stream/proxy?url={quote(result['stream_url'], safe='')}" if result["stream_url"] else None
                             result["is_hls"] = bool(result["stream_url"])
 
                             playlist = []
                             for idx, v in enumerate(video_list):
+                                item_stream = v.get("fast_stream_url")
                                 playlist.append({
                                     "index": idx,
                                     "title": v.get("file_name") or f"Part {idx+1}",
                                     "size": v.get("file_size") or "",
                                     "thumbnail": v.get("thumbnail"),
-                                    "stream_url": v.get("fast_stream_url"),
+                                    "stream_url": item_stream,
+                                    "proxy_stream_url": f"/api/stream/proxy?url={quote(item_stream, safe='')}" if item_stream else None,
                                     "download_url": v.get("download_url")
                                 })
                             result["playlist"] = playlist
@@ -347,6 +350,67 @@ def api_resolve():
         )
 
     return jsonify(stream_info)
+
+
+@app.route('/api/stream/proxy')
+def stream_proxy():
+    """Proxies HLS .m3u8 playlists and .ts video chunks to bypass all regional blocks/ISPs."""
+    target_url = request.args.get('url')
+    if not target_url:
+        return Response("Missing URL parameter", status=400)
+
+    req_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://flowvideoplayer.com/'
+    }
+    if 'Range' in request.headers:
+        req_headers['Range'] = request.headers['Range']
+
+    try:
+        # Check if target is an M3U8 master playlist
+        if '.m3u8' in target_url or 'get_m3u8' in target_url:
+            r = requests.get(target_url, headers=req_headers, timeout=12)
+            if r.status_code != 200:
+                return Response(r.content, status=r.status_code, content_type=r.headers.get('content-type', 'application/vnd.apple.mpegurl'))
+
+            base_url = target_url.rsplit('/', 1)[0]
+            lines = r.text.splitlines()
+            new_lines = []
+            for line in lines:
+                line_clean = line.strip()
+                if line_clean and not line_clean.startswith('#'):
+                    seg_url = line_clean if line_clean.startswith('http') else f"{base_url}/{line_clean}"
+                    proxied = f"/api/stream/proxy?url={quote(seg_url, safe='')}"
+                    new_lines.append(proxied)
+                else:
+                    new_lines.append(line)
+
+            rewritten = "\n".join(new_lines)
+            resp = Response(rewritten, content_type="application/vnd.apple.mpegurl; charset=utf-8")
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+            resp.headers['Cache-Control'] = 'no-cache'
+            return resp
+        else:
+            # Video segment stream (.ts chunk / binary data)
+            r = requests.get(target_url, headers=req_headers, stream=True, timeout=20)
+            def generate():
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+
+            resp = Response(generate(), status=r.status_code, content_type=r.headers.get('content-type', 'video/MP2T'))
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+            if 'Content-Range' in r.headers:
+                resp.headers['Content-Range'] = r.headers['Content-Range']
+            if 'Content-Length' in r.headers:
+                resp.headers['Content-Length'] = r.headers['Content-Length']
+            if 'Accept-Ranges' in r.headers:
+                resp.headers['Accept-Ranges'] = r.headers['Accept-Ranges']
+            return resp
+    except Exception as e:
+        return Response(f"Proxy stream error: {str(e)}", status=500)
 
 
 @app.route('/api/health')
