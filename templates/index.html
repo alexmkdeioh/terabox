@@ -85,6 +85,54 @@
         .plyr__control--overlaid {
             background: rgba(14, 165, 233, 0.9) !important;
         }
+        /* Video Play Timer Long & Expanded Progress Bar */
+        .plyr__controls {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            padding: 10px 16px !important;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.3) 70%, transparent) !important;
+        }
+        .plyr__progress__container {
+            flex: 1 1 auto !important;
+            min-width: 140px !important;
+            margin: 0 4px !important;
+        }
+        .plyr__progress input[type=range] {
+            height: 6px !important;
+            cursor: pointer !important;
+        }
+        .plyr__time {
+            font-size: 13px !important;
+            font-weight: 600 !important;
+            font-variant-numeric: tabular-nums !important;
+            letter-spacing: 0.5px !important;
+            color: #f1f5f9 !important;
+            padding: 0 4px !important;
+            white-space: nowrap !important;
+        }
+        .plyr__time + .plyr__time::before {
+            content: '/' !important;
+            margin-right: 6px !important;
+            color: #64748b !important;
+        }
+        /* Reduced Sound / Volume Button & Slider */
+        .plyr__volume {
+            max-width: 48px !important;
+            min-width: 0 !important;
+            flex-shrink: 1 !important;
+        }
+        .plyr__volume input[type=range] {
+            max-width: 36px !important;
+            min-width: 25px !important;
+        }
+        .plyr__control[data-plyr="mute"] {
+            padding: 6px !important;
+        }
+        .plyr__control[data-plyr="mute"] svg {
+            width: 15px !important;
+            height: 15px !important;
+        }
         .theater-mode {
             max-width: 100% !important;
             width: 100% !important;
@@ -460,6 +508,9 @@
                     ],
                     settings: ['speed', 'quality'],
                     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+                    invertTime: false,
+                    toggleInvert: false,
+                    displayDuration: true,
                     autoplay: true,
                     keyboard: { focused: true, global: true }
                 });
