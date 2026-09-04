@@ -357,11 +357,9 @@ def api_resolve():
     return jsonify(stream_info)
 
 
-CLOUDFLARE_WORKER = os.environ.get("CLOUDFLARE_WORKER", "https://stream-proxy.offertricksandpromocode.workers.dev?url=")
-
 @app.route('/api/stream/proxy')
 def stream_proxy():
-    """Proxies HLS .m3u8 playlists and routes chunks via Cloudflare Edge Worker to bypass all regional blocks."""
+    """Proxies HLS .m3u8 playlists and video streams with full CORS headers."""
     target_url = request.args.get('url')
     if not target_url:
         return Response("Missing URL parameter", status=400)
@@ -374,37 +372,15 @@ def stream_proxy():
         req_headers['Range'] = request.headers['Range']
 
     try:
-        # Check if target is an M3U8 master playlist
         if '.m3u8' in target_url or 'get_m3u8' in target_url:
             r = requests.get(target_url, headers=req_headers, timeout=12)
-            if r.status_code != 200:
-                r = requests.get(f"{CLOUDFLARE_WORKER}{quote(target_url, safe='')}", headers=req_headers, timeout=12)
-
-            if r.status_code == 200:
-                base_url = target_url.rsplit('/', 1)[0]
-                lines = r.text.splitlines()
-                new_lines = []
-                for line in lines:
-                    line_clean = line.strip()
-                    if line_clean and not line_clean.startswith('#'):
-                        seg_url = line_clean if line_clean.startswith('http') else f"{base_url}/{line_clean}"
-                        proxied = f"{CLOUDFLARE_WORKER}{quote(seg_url, safe='')}"
-                        new_lines.append(proxied)
-                    else:
-                        new_lines.append(line)
-
-                rewritten = "\n".join(new_lines)
-                resp = Response(rewritten, content_type="application/vnd.apple.mpegurl; charset=utf-8")
-                resp.headers['Access-Control-Allow-Origin'] = '*'
-                resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-                resp.headers['Cache-Control'] = 'no-cache'
-                return resp
-            else:
-                return Response(r.content, status=r.status_code, content_type=r.headers.get('content-type', 'application/vnd.apple.mpegurl'))
+            resp = Response(r.content, status=r.status_code, content_type="application/vnd.apple.mpegurl; charset=utf-8")
+            resp.headers['Access-Control-Allow-Origin'] = '*'
+            resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+            resp.headers['Cache-Control'] = 'no-cache'
+            return resp
         else:
-            # Direct proxy segment via Cloudflare Worker
-            worker_target = f"{CLOUDFLARE_WORKER}{quote(target_url, safe='')}"
-            r = requests.get(worker_target, headers=req_headers, stream=True, timeout=20)
+            r = requests.get(target_url, headers=req_headers, stream=True, timeout=20)
             def generate():
                 for chunk in r.iter_content(chunk_size=65536):
                     if chunk:
