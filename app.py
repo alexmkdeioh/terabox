@@ -18,7 +18,8 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "mk@123")
 DB_FILE = os.path.join(os.path.dirname(__file__), "terastream.db")
 
 # Lifetime Cloud Database (PostgreSQL) configuration
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DEFAULT_DATABASE_URL = "postgresql://neondb_owner:npg_0JyzHhFLNGs1@ep-gentle-bonus-ae1k78jw-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require"
+DATABASE_URL = os.environ.get("DATABASE_URL") or DEFAULT_DATABASE_URL
 if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
