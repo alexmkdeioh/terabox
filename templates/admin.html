@@ -51,6 +51,10 @@
             </div>
 
             <div class="flex items-center gap-3">
+                <div class="hidden sm:flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border {% if 'PostgreSQL' in stats.db_type %}bg-emerald-950/60 text-emerald-400 border-emerald-800/50{% else %}bg-amber-950/60 text-amber-400 border-amber-800/50{% endif %}">
+                    <span class="w-2 h-2 rounded-full {% if 'PostgreSQL' in stats.db_type %}bg-emerald-400 animate-pulse{% else %}bg-amber-400{% endif %}"></span>
+                    <span class="font-medium">{{ stats.db_type }}</span>
+                </div>
                 <a href="/" target="_blank" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border transition flex items-center gap-1.5">
                     <i data-lucide="external-link" class="w-3.5 h-3.5 text-brand-400"></i>
                     <span>Live Player</span>

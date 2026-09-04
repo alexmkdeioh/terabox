@@ -17,36 +17,76 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "mahabir")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "mk@123")
 DB_FILE = os.path.join(os.path.dirname(__file__), "terastream.db")
 
-# ----------------- DATABASE INITIALIZATION -----------------
+# Lifetime Cloud Database (PostgreSQL) configuration
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-def get_db_conn():
+try:
+    import psycopg2
+    from psycopg2.extras import RealDictCursor
+    HAS_PSYCOPG2 = True
+except ImportError:
+    HAS_PSYCOPG2 = False
+
+
+# ----------------- LIFETIME PERSISTENT DATABASE ENGINE -----------------
+
+def get_db_connection():
+    """Returns a database connection (PostgreSQL if DATABASE_URL is set, otherwise local SQLite)."""
+    if DATABASE_URL and HAS_PSYCOPG2:
+        try:
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+            return "postgres", conn
+        except Exception as e:
+            print("PostgreSQL connection error, falling back to SQLite:", e)
+
     conn = sqlite3.connect(DB_FILE, timeout=15)
     try:
         conn.execute("PRAGMA journal_mode=WAL;")
     except Exception:
         pass
-    return conn
+    return "sqlite", conn
 
 
 def init_db():
+    """Initializes the search_logs table across PostgreSQL and SQLite."""
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        with conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS search_logs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    searched_url TEXT,
-                    surl TEXT,
-                    video_title TEXT,
-                    video_size TEXT,
-                    stream_url TEXT,
-                    download_url TEXT,
-                    user_ip TEXT,
-                    user_agent TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
+            if db_type == "postgres":
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS search_logs (
+                        id SERIAL PRIMARY KEY,
+                        searched_url TEXT,
+                        surl TEXT,
+                        video_title TEXT,
+                        video_size TEXT,
+                        stream_url TEXT,
+                        download_url TEXT,
+                        user_ip TEXT,
+                        user_agent TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS search_logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        searched_url TEXT,
+                        surl TEXT,
+                        video_title TEXT,
+                        video_size TEXT,
+                        stream_url TEXT,
+                        download_url TEXT,
+                        user_ip TEXT,
+                        user_agent TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
             conn.commit()
+        conn.close()
     except Exception as e:
         print("DB Init Error:", e)
 
@@ -54,24 +94,41 @@ init_db()
 
 
 def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
-    """Guarantees every user search query is saved to SQLite database."""
+    """Guarantees every user search query is saved to lifetime persistent database."""
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        with conn:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO search_logs (searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                str(searched_url or ''),
-                str(surl or ''),
-                str(video_title or 'TeraBox Video'),
-                str(video_size or 'HD Video'),
-                str(stream_url or ''),
-                str(download_url or ''),
-                str(user_ip or '127.0.0.1'),
-                str(user_agent or 'Unknown')
-            ))
+            if db_type == "postgres":
+                cursor.execute('''
+                    INSERT INTO search_logs (searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ''', (
+                    str(searched_url or ''),
+                    str(surl or ''),
+                    str(video_title or 'TeraBox Video'),
+                    str(video_size or 'HD Video'),
+                    str(stream_url or ''),
+                    str(download_url or ''),
+                    str(user_ip or '127.0.0.1'),
+                    str(user_agent or 'Unknown')
+                ))
+            else:
+                cursor.execute('''
+                    INSERT INTO search_logs (searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    str(searched_url or ''),
+                    str(surl or ''),
+                    str(video_title or 'TeraBox Video'),
+                    str(video_size or 'HD Video'),
+                    str(stream_url or ''),
+                    str(download_url or ''),
+                    str(user_ip or '127.0.0.1'),
+                    str(user_agent or 'Unknown')
+                ))
             conn.commit()
+        conn.close()
     except Exception as e:
         print("Log search error:", e)
 
@@ -503,11 +560,31 @@ def admin_dashboard():
         "total_searches": 0,
         "unique_links": 0,
         "today_searches": 0,
-        "unique_ips": 0
+        "unique_ips": 0,
+        "db_type": "SQLite (Local File)"
     }
 
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        stats["db_type"] = "Cloud PostgreSQL (Lifetime Persistent)" if db_type == "postgres" else "SQLite (Local File)"
+
+        if db_type == "postgres" and HAS_PSYCOPG2:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute('SELECT COUNT(*) AS count FROM search_logs')
+            stats["total_searches"] = cursor.fetchone()['count']
+
+            cursor.execute('SELECT COUNT(DISTINCT surl) AS count FROM search_logs')
+            stats["unique_links"] = cursor.fetchone()['count']
+
+            cursor.execute("SELECT COUNT(*) AS count FROM search_logs WHERE created_at >= NOW() - INTERVAL '1 day'")
+            stats["today_searches"] = cursor.fetchone()['count']
+
+            cursor.execute('SELECT COUNT(DISTINCT user_ip) AS count FROM search_logs')
+            stats["unique_ips"] = cursor.fetchone()['count']
+
+            cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
+            logs = cursor.fetchall()
+        else:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
@@ -525,6 +602,8 @@ def admin_dashboard():
 
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
             logs = [dict(row) for row in cursor.fetchall()]
+
+        conn.close()
     except Exception as e:
         print("Admin fetch error:", e)
 
@@ -541,16 +620,21 @@ def admin_export_csv():
     writer.writerow(['ID', 'Timestamp', 'Video Title', 'Size', 'Searched URL', 'SURL', 'Stream URL', 'Download URL', 'User IP', 'User Agent'])
 
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        if db_type == "postgres" and HAS_PSYCOPG2:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        else:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM search_logs ORDER BY id DESC')
-            for row in cursor.fetchall():
-                writer.writerow([
-                    row['id'], row['created_at'], row['video_title'], row['video_size'],
-                    row['searched_url'], row['surl'], row['stream_url'], row['download_url'],
-                    row['user_ip'], row['user_agent']
-                ])
+
+        cursor.execute('SELECT * FROM search_logs ORDER BY id DESC')
+        for row in cursor.fetchall():
+            writer.writerow([
+                row['id'], str(row['created_at']), row['video_title'], row['video_size'],
+                row['searched_url'], row['surl'], row['stream_url'], row['download_url'],
+                row['user_ip'], row['user_agent']
+            ])
+        conn.close()
     except Exception as e:
         print("CSV export error:", e)
 
@@ -568,10 +652,15 @@ def admin_delete(log_id):
         return redirect(url_for('admin_login'))
 
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        with conn:
             cursor = conn.cursor()
-            cursor.execute('DELETE FROM search_logs WHERE id = ?', (log_id,))
+            if db_type == "postgres":
+                cursor.execute('DELETE FROM search_logs WHERE id = %s', (log_id,))
+            else:
+                cursor.execute('DELETE FROM search_logs WHERE id = ?', (log_id,))
             conn.commit()
+        conn.close()
     except Exception as e:
         print("Delete error:", e)
 
@@ -584,10 +673,12 @@ def admin_clear():
         return redirect(url_for('admin_login'))
 
     try:
-        with get_db_conn() as conn:
+        db_type, conn = get_db_connection()
+        with conn:
             cursor = conn.cursor()
             cursor.execute('DELETE FROM search_logs')
             conn.commit()
+        conn.close()
     except Exception as e:
         print("Clear error:", e)
 
