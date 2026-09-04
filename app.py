@@ -243,7 +243,7 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
 
             for target_link in candidate_links:
                 try:
-                    resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=5)
+                    resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=8)
                     if resp.status_code == 200:
                         data = resp.json()
                         if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
