@@ -276,6 +276,11 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
         except Exception as e:
             print("Direct HLS extraction error:", e)
 
+    # If stream could not be extracted (expired/deleted link)
+    if not result.get("stream_url"):
+        result["success"] = False
+        result["error"] = "This TeraBox video link has expired, been deleted by the owner, or is no longer available on TeraBox."
+
     return result
 
 
