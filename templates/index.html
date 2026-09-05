@@ -218,11 +218,13 @@
                 <div id="heroBadges" class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
                     <span class="text-slate-500 font-medium">Supports:</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">youtube.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-300 font-mono font-medium">youtu.be / shorts</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-purple-400 font-mono font-medium">diskwala.com</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">terabox.app</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">1024tera.com</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">thediskwala.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">flaredvns / direct</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-400 font-mono">& all others</span>
                 </div>
             </div>
@@ -1238,10 +1240,27 @@
             }
         });
 
+        function autoDetectMode(val) {
+            if (!val) return;
+            const clean = val.toLowerCase();
+            if (clean.includes('youtube.com') || clean.includes('youtu.be') || clean.includes('youtube-nocookie.com')) {
+                if (activeMode !== 'youtube') switchSearchMode('youtube');
+            } else if (clean.includes('diskwala') || clean.includes('thediskwala') || clean.includes('playdiskwala')) {
+                if (activeMode !== 'diskwala') switchSearchMode('diskwala');
+            } else if (clean.includes('flare') || clean.includes('flaredvns') || clean.includes('cashsnap') || clean.includes('hugebox') || clean.includes('blinknote')) {
+                if (activeMode !== 'flare') switchSearchMode('flare');
+            } else if (clean.includes('.m3u8') || clean.includes('.mp4') || clean.includes('.webm') || clean.includes('.mkv')) {
+                if (activeMode !== 'direct') switchSearchMode('direct');
+            } else if (clean.includes('terabox') || clean.includes('1024tera') || clean.includes('terashare') || clean.includes('nephobox') || clean.includes('4funbox')) {
+                if (activeMode !== 'terabox') switchSearchMode('terabox');
+            }
+        }
+
         // Setup input helpers
         urlInput.addEventListener('input', () => {
             clearBtn.classList.toggle('hidden', !urlInput.value);
             errorBox.classList.add('hidden');
+            autoDetectMode(urlInput.value);
         });
 
         clearBtn.addEventListener('click', () => {
@@ -1256,6 +1275,7 @@
                 if (text) {
                     urlInput.value = text.replace(/\s+/g, '');
                     clearBtn.classList.remove('hidden');
+                    autoDetectMode(urlInput.value);
                     urlInput.focus();
                 }
             } catch (e) {
