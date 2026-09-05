@@ -559,13 +559,18 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         'no_warnings': True,
         'skip_download': True,
         'noplaylist': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'android_vr', 'tv_embedded']
+            }
+        }
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts_all) as ydl:
             info = ydl.extract_info(target_url, download=False)
             if not info:
-                return {"success": False, "error": "Could not extract video information from YouTube.", "mode": "youtube"}
+                raise Exception("No video info returned")
 
             vid = info.get('id') or video_id or "youtube"
             title = info.get('title') or f"YouTube Video {vid}"
@@ -583,24 +588,6 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
             thumbnail = info.get('thumbnail') or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
 
             formats = list(info.get('formats', []) or [])
-
-            # Also fetch progressive android formats if needed
-            has_prog = any(f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url') for f in formats)
-            if not has_prog:
-                try:
-                    ydl_opts_android = {
-                        'quiet': True,
-                        'no_warnings': True,
-                        'skip_download': True,
-                        'noplaylist': True,
-                        'extractor_args': {'youtube': {'player_client': ['android']}}
-                    }
-                    with yt_dlp.YoutubeDL(ydl_opts_android) as ydl_and:
-                        info_and = ydl_and.extract_info(target_url, download=False)
-                        if info_and and info_and.get('formats'):
-                            formats += info_and['formats']
-                except Exception:
-                    pass
 
             # 1. Progressive formats (both video and audio)
             prog_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
@@ -707,12 +694,50 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
             return result
 
     except Exception as e:
-        print("YouTube resolve error:", e)
-        return {
-            "success": False,
-            "error": f"YouTube extraction error: {str(e)}",
-            "mode": "youtube"
+        print("YouTube extraction notice:", e)
+        # Ultra-reliable fallback via oEmbed + YouTube embed player
+        fallback_title = "YouTube Video"
+        fallback_thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None
+        try:
+            r_oembed = requests.get(f"https://www.youtube.com/oembed?url={quote(target_url)}&format=json", timeout=5)
+            if r_oembed.status_code == 200:
+                oe_data = r_oembed.json()
+                fallback_title = oe_data.get('title') or fallback_title
+                fallback_thumb = oe_data.get('thumbnail_url') or fallback_thumb
+        except Exception:
+            pass
+
+        vid = video_id or "youtube"
+        embed_result = {
+            "success": True,
+            "surl": vid,
+            "full_surl": vid,
+            "title": fallback_title,
+            "channel": "YouTube",
+            "views": "",
+            "size": "HD Stream",
+            "size_bytes": 0,
+            "duration_str": "HD Stream",
+            "thumbnail": fallback_thumb,
+            "stream_url": None,
+            "proxy_stream_url": None,
+            "download_url": f"https://www.youtube.com/watch?v={vid}",
+            "download_formats": [],
+            "is_hls": False,
+            "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
+            "mode": "youtube",
+            "playlist": [{
+                "index": 0,
+                "title": fallback_title,
+                "size": "HD Video",
+                "thumbnail": fallback_thumb,
+                "stream_url": None,
+                "proxy_stream_url": None,
+                "download_url": f"https://www.youtube.com/watch?v={vid}"
+            }]
         }
+        RESOLVE_CACHE[cache_key] = (time.time(), embed_result)
+        return embed_result
 
 
 def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
