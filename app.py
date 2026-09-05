@@ -803,7 +803,7 @@ def is_diskwala_link(raw_input: str) -> bool:
 
 
 def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves DiskWala videos strictly using the official DiskWala backend API system."""
+    """Resolves DiskWala videos via Method 1: Mobile App Client Emulation (Android Headers & API Signatures)."""
     clean = raw_url_or_id.strip()
     disk_id = extract_diskwala_id(clean)
 
@@ -818,47 +818,54 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         if now - cached_time < 1200:
             return cached_res
 
-    if not DISKWALA_API_KEY:
-        return {
-            "success": False,
-            "error": "DiskWala API Key is not configured in the backend environment.",
-            "mode": "diskwala"
-        }
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': f'Bearer {DISKWALA_API_KEY}'
-    }
-
     title = f"DiskWala Video {disk_id}" if disk_id else "DiskWala Video"
     stream_url = None
     download_url = target_url
     thumbnail = None
     size_str = "DiskWala HD"
 
-    # Query DiskWala API endpoints with the API key
+    # Method 1: Android Mobile App Client Headers & Signatures (Bypasses Web "Download App" Walls)
+    mobile_app_headers = {
+        'User-Agent': 'DiskWala/2.4.2 (Linux; U; Android 13; en-US; SM-S918B Build/TP1A.220624.014) Mobile/1.0',
+        'X-App-Version': '2.4.2',
+        'X-Client-Type': 'android',
+        'X-Platform': 'Android',
+        'X-Requested-With': 'com.diskwala.app',
+        'Accept': 'application/json, text/plain, */*',
+        'Authorization': f'Bearer {DISKWALA_API_KEY}' if DISKWALA_API_KEY else ''
+    }
+
+    desktop_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/html, */*',
+        'Referer': 'https://diskwala.com/',
+        'Authorization': f'Bearer {DISKWALA_API_KEY}' if DISKWALA_API_KEY else ''
+    }
+
+    # Query Mobile App API and Web API endpoints
     api_endpoints = [
-        f"https://diskwala.com/api/file/info?key={DISKWALA_API_KEY}&file_code={disk_id}",
-        f"https://diskwala.com/api/file/direct_link?key={DISKWALA_API_KEY}&file_code={disk_id}",
-        f"https://diskwala.com/api/v1/file/info?key={DISKWALA_API_KEY}&file_id={disk_id}",
-        f"https://diskwala.net/api?key={DISKWALA_API_KEY}&url={quote(target_url, safe='')}",
-        f"https://diskwala.net/api?api_key={DISKWALA_API_KEY}&id={disk_id}"
+        (f"https://diskwala.com/api/v1/app/file/play?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
+        (f"https://diskwala.com/api/file/info?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
+        (f"https://diskwala.com/api/file/direct_link?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
+        (f"https://diskwala.com/api/v1/file/info?key={DISKWALA_API_KEY}&file_id={disk_id}", desktop_headers),
+        (f"https://diskwala.net/api?key={DISKWALA_API_KEY}&url={quote(target_url, safe='')}", desktop_headers),
+        (f"https://diskwala.net/api?api_key={DISKWALA_API_KEY}&id={disk_id}", desktop_headers),
+        (f"https://api.diskwala.com/v1/file/play?key={DISKWALA_API_KEY}&file_id={disk_id}", mobile_app_headers)
     ]
 
-    for ep in api_endpoints:
+    for ep, hdrs in api_endpoints:
         try:
-            r_api = requests.get(ep, headers=headers, timeout=6)
+            r_api = requests.get(ep, headers=hdrs, timeout=5)
             if r_api.status_code == 200:
                 data = r_api.json()
                 if isinstance(data, dict):
-                    res_obj = data.get("result") or data.get("data") or data
+                    res_obj = data.get("result") or data.get("data") or data.get("response") or data
                     title = res_obj.get("title") or res_obj.get("file_name") or res_obj.get("name") or title
                     thumbnail = res_obj.get("thumbnail") or res_obj.get("poster") or thumbnail
                     size_raw = res_obj.get("size") or res_obj.get("file_size")
                     if size_raw:
                         size_str = str(size_raw)
-                    stream_candidate = res_obj.get("stream_url") or res_obj.get("direct_link") or res_obj.get("download_url") or res_obj.get("url")
+                    stream_candidate = res_obj.get("stream_url") or res_obj.get("direct_link") or res_obj.get("download_url") or res_obj.get("url") or res_obj.get("play_url")
                     if stream_candidate and ("http" in str(stream_candidate)):
                         stream_url = stream_candidate
                         download_url = stream_candidate
@@ -869,7 +876,7 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
     if not stream_url:
         return {
             "success": False,
-            "error": "DiskWala API did not return an active stream link for this file. Please verify the link or API access.",
+            "error": "DiskWala Mobile App API did not return an active stream link for this file. Please verify the link or API credentials.",
             "mode": "diskwala"
         }
 
@@ -884,7 +891,7 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         "duration_str": "HD Stream",
         "thumbnail": thumbnail,
         "stream_url": stream_url,
-        "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if is_hls else None,
+        "proxy_stream_url": f"/api/diskwala/stream?url={quote(stream_url, safe='')}" if stream_url else None,
         "download_url": download_url,
         "is_hls": is_hls,
         "mode": "diskwala",
@@ -894,17 +901,12 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
             "size": size_str,
             "thumbnail": thumbnail,
             "stream_url": stream_url,
-            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if is_hls else None,
+            "proxy_stream_url": f"/api/diskwala/stream?url={quote(stream_url, safe='')}" if stream_url else None,
             "download_url": download_url
         }]
     }
 
     RESOLVE_CACHE[cache_key] = (now, result)
-    return result
-
-    if stream_url:
-        RESOLVE_CACHE[cache_key] = (now, result)
-
     return result
 
 
@@ -1165,6 +1167,41 @@ def api_log_client():
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/api/diskwala/stream')
+def diskwala_stream_proxy():
+    """Proxies DiskWala media streams with mobile app signatures and Referer headers to bypass hotlinking/403 blocks."""
+    target_stream = request.args.get('url')
+    if not target_stream:
+        return Response("Missing stream URL", status=400)
+
+    proxy_headers = {
+        'User-Agent': 'DiskWala/2.4.2 (Linux; U; Android 13; en-US; SM-S918B Build/TP1A.220624.014) Mobile/1.0',
+        'Referer': 'https://diskwala.com/',
+        'Origin': 'https://diskwala.com'
+    }
+
+    range_header = request.headers.get('Range')
+    if range_header:
+        proxy_headers['Range'] = range_header
+
+    try:
+        req = requests.get(target_stream, headers=proxy_headers, stream=True, timeout=12)
+        resp_headers = {}
+        for h in ['Content-Type', 'Content-Length', 'Accept-Ranges', 'Content-Range']:
+            if h in req.headers:
+                resp_headers[h] = req.headers[h]
+        resp_headers['Access-Control-Allow-Origin'] = '*'
+
+        def generate():
+            for chunk in req.iter_content(chunk_size=64 * 1024):
+                if chunk:
+                    yield chunk
+
+        return Response(generate(), status=req.status_code, headers=resp_headers)
+    except Exception as e:
+        return Response(f"DiskWala stream error: {e}", status=502)
 
 
 @app.route('/api/youtube/stream')
