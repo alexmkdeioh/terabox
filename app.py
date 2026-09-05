@@ -7,6 +7,7 @@ import time
 import base64
 import sqlite3
 import requests
+import subprocess
 from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
 
@@ -274,225 +275,6 @@ def extract_surl(raw_input: str) -> str:
     return ""
 
 
-# ----------------- DISKWALA RESOLVER ENGINE -----------------
-
-def extract_diskwala_id(raw_input: str) -> str:
-    """Extracts clean ID or key from Diskwala links, file URLs, or raw share codes."""
-    if not raw_input:
-        return ""
-    clean = raw_input.strip()
-
-    # 1. Query parameters (?id=... or ?fileId=... or ?surl=... or ?v=...)
-    if "?" in clean:
-        try:
-            parsed = urlparse(clean)
-            qs = parse_qs(parsed.query)
-            for k in ["id", "fileId", "file_id", "surl", "linkId", "link_id", "key", "v", "code"]:
-                if k in qs and qs[k]:
-                    return qs[k][0]
-        except Exception:
-            pass
-
-    # 2. Path patterns: /s/<id>, /file/<id>, /link/<id>, /app/<id>, /view/<id>, /d/<id>, /play/<id>, /embed/<id>
-    m_path = re.search(r'/(?:s|file|link|app|view|d|play|embed|v)/([a-zA-Z0-9_-]{4,64})', clean, re.IGNORECASE)
-    if m_path:
-        return m_path.group(1)
-
-    # 3. Direct alphanumeric share ID
-    if re.match(r'^[a-zA-Z0-9_-]{5,64}$', clean) and not clean.startswith("http"):
-        return clean
-
-    return clean
-
-
-def is_diskwala_link(raw_input: str) -> bool:
-    """Detects if input is a Diskwala link or domain."""
-    if not raw_input:
-        return False
-    clean = raw_input.lower().strip()
-    return any(k in clean for k in [
-        "diskwala",
-        "thediskwala",
-        "playdiskwala",
-        "disk-wala",
-        "diskwaladownloader",
-        "diskwala.com",
-        "thediskwala.com",
-        "playdiskwala.in",
-        "diskwala.net",
-        "diskwala.org",
-        "diskwala.live"
-    ])
-
-
-def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves Diskwala video streams, playlists, direct downloads, and metadata with caching."""
-    clean_input = raw_url_or_id.strip()
-    if not clean_input:
-        return {"success": False, "error": "Please enter a valid DiskWala link.", "mode": "diskwala"}
-
-    clean_id = extract_diskwala_id(clean_input)
-
-    now = time.time()
-    cache_key = f"diskwala_{clean_id or clean_input}"
-    if cache_key in RESOLVE_CACHE:
-        cached_time, cached_res = RESOLVE_CACHE[cache_key]
-        if now - cached_time < 1200:
-            return cached_res
-
-    # Build canonical candidate links
-    candidate_links = []
-    if clean_input.startswith("http"):
-        candidate_links.append(clean_input)
-    if clean_id:
-        candidate_links.extend([
-            f"https://diskwala.com/s/{clean_id}",
-            f"https://diskwala.com/file/{clean_id}",
-            f"https://thediskwala.com/s/{clean_id}",
-            f"https://playdiskwala.in/view/{clean_id}",
-            f"https://diskwala.com/link/{clean_id}",
-            f"https://thediskwala.com/file/{clean_id}"
-        ])
-
-    # 1. Flow Video Session API resolver
-    session_obj, csrf_token = get_flow_session()
-    if session_obj and csrf_token:
-        ajax_headers = {
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'Origin': 'https://flowvideoplayer.com',
-            'Referer': 'https://flowvideoplayer.com/',
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'same-origin',
-            'X-CSRF-TOKEN': csrf_token,
-            'X-Requested-With': 'XMLHttpRequest',
-        }
-        for target_link in candidate_links:
-            try:
-                resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': target_link}, headers=ajax_headers, timeout=8)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
-                        video_list = data["response"]
-                        first_video = video_list[0]
-                        title = first_video.get("file_name") or f"DiskWala Video ({clean_id})"
-                        stream_url = first_video.get("fast_stream_url")
-                        download_url = first_video.get("download_url") or stream_url
-                        thumbnail = first_video.get("thumbnail")
-                        size = first_video.get("file_size") or "HD Video"
-
-                        playlist = []
-                        for idx, v in enumerate(video_list):
-                            item_stream = v.get("fast_stream_url")
-                            playlist.append({
-                                "index": idx,
-                                "title": v.get("file_name") or f"Part {idx+1}",
-                                "size": v.get("file_size") or "",
-                                "thumbnail": v.get("thumbnail"),
-                                "stream_url": item_stream,
-                                "proxy_stream_url": f"/api/stream/proxy?url={quote(item_stream, safe='')}" if item_stream and ".m3u8" in item_stream else None,
-                                "download_url": v.get("download_url") or item_stream
-                            })
-
-                        result = {
-                            "success": True,
-                            "surl": clean_id or "diskwala",
-                            "full_surl": clean_id or "diskwala",
-                            "title": title,
-                            "size": size,
-                            "size_bytes": first_video.get("file_size_bytes") or 0,
-                            "duration_str": "Full HD",
-                            "thumbnail": thumbnail,
-                            "stream_url": stream_url,
-                            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
-                            "download_url": download_url,
-                            "is_hls": bool(stream_url and ".m3u8" in stream_url),
-                            "mode": "diskwala",
-                            "playlist": playlist
-                        }
-                        RESOLVE_CACHE[cache_key] = (time.time(), result)
-                        return result
-            except Exception:
-                continue
-
-    # 2. Direct Web & Embed Scraper Fallback
-    direct_scraped = None
-    try:
-        req_headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://diskwala.com/'
-        }
-        for u in candidate_links:
-            try:
-                r = requests.get(u, headers=req_headers, timeout=6)
-                if r.status_code == 200:
-                    text = r.text
-                    title_m = re.search(r'<title>(.*?)</title>', text, re.IGNORECASE)
-                    page_title = title_m.group(1).strip() if title_m else "DiskWala Video"
-                    page_title = re.sub(r'(\s*-\s*DiskWala.*|\s*\|\s*DiskWala.*)', '', page_title, flags=re.IGNORECASE)
-
-                    src_m = re.search(r'<source[^>]+src=["\']([^"\']+)["\']|<video[^>]+src=["\']([^"\']+)["\']', text)
-                    stream_src = src_m.group(1) or src_m.group(2) if src_m else None
-                    if not stream_src:
-                        m_m3u8 = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', text)
-                        if m_m3u8:
-                            stream_src = m_m3u8.group(1)
-                    if not stream_src:
-                        m_mp4 = re.search(r'["\'](https?://[^"\']+\.mp4[^"\']*)["\']', text)
-                        if m_mp4:
-                            stream_src = m_mp4.group(1)
-
-                    if stream_src:
-                        direct_scraped = {
-                            "title": page_title,
-                            "stream_url": stream_src
-                        }
-                        break
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-    if direct_scraped and direct_scraped.get("stream_url"):
-        s_url = direct_scraped["stream_url"]
-        is_hls = ".m3u8" in s_url
-        result = {
-            "success": True,
-            "surl": clean_id or "diskwala",
-            "full_surl": clean_id or "diskwala",
-            "title": direct_scraped["title"],
-            "size": "HD Video",
-            "size_bytes": 0,
-            "duration_str": "HD Quality",
-            "thumbnail": None,
-            "stream_url": s_url,
-            "proxy_stream_url": f"/api/stream/proxy?url={quote(s_url, safe='')}" if is_hls else None,
-            "download_url": s_url,
-            "is_hls": is_hls,
-            "mode": "diskwala",
-            "playlist": [{
-                "index": 0,
-                "title": direct_scraped["title"],
-                "size": "HD Video",
-                "thumbnail": None,
-                "stream_url": s_url,
-                "proxy_stream_url": f"/api/stream/proxy?url={quote(s_url, safe='')}" if is_hls else None,
-                "download_url": s_url
-            }]
-        }
-        RESOLVE_CACHE[cache_key] = (time.time(), result)
-        return result
-
-    # 3. Fallback error message
-    return {
-        "success": False,
-        "error": f"DiskWala video link ({clean_id or clean_input}) has expired, been deleted by the owner, or is no longer accessible.",
-        "surl": clean_id or "diskwala",
-        "mode": "diskwala"
-    }
-
-
 FLARE_AES_KEY = b"CMrhmcd9oFUjWBBleiMfS0BiBfupaVsG"
 FLARE_AES_IV = b"2Xk4dLo38c9Z2Q2a"
 
@@ -674,6 +456,107 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
     }
     RESOLVE_CACHE[cache_key] = (time.time(), result)
     return result
+
+
+# ----------------- DISKWALA RESOLVER ENGINE -----------------
+
+def extract_diskwala_id(raw_input: str) -> str:
+    """Extracts 24-character hex ID from DiskWala URLs or raw input."""
+    if not raw_input:
+        return ""
+    clean = raw_input.strip()
+
+    # 1. URL pattern /app/<id>, /d/<id>, /file/<id>, /view/<id>, /play/<id>, /s/<id>
+    m1 = re.search(r'diskwala\.com/(?:app|d|file|view|play|watch|s|creator)/([a-fA-F0-9]{24})', clean, re.IGNORECASE)
+    if m1:
+        return m1.group(1)
+
+    # 2. Query param ?id=... or ?v=...
+    m2 = re.search(r'[?&#](?:id|v|file_id)=([a-fA-F0-9]{24})', clean, re.IGNORECASE)
+    if m2:
+        return m2.group(1)
+
+    # 3. DiskWala domain with hex ID
+    if "diskwala" in clean.lower():
+        m3 = re.search(r'([a-fA-F0-9]{24})', clean)
+        if m3:
+            return m3.group(1)
+
+    # 4. Pure 24-char hex string
+    if re.fullmatch(r'[a-fA-F0-9]{24}', clean):
+        return clean
+
+    return ""
+
+
+def is_diskwala_link(raw_input: str) -> bool:
+    """Detects if input is a DiskWala link or 24-hex ID."""
+    if not raw_input:
+        return False
+    if "diskwala" in raw_input.lower():
+        return bool(extract_diskwala_id(raw_input))
+    return bool(re.fullmatch(r'[a-fA-F0-9]{24}', raw_input.strip()))
+
+
+def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
+    """Resolves video streams, file metadata, and download links from DiskWala URLs."""
+    clean_id = extract_diskwala_id(raw_url_or_id)
+    if not clean_id:
+        return {"success": False, "error": "Please enter a valid DiskWala link or 24-character Link ID."}
+
+    now = time.time()
+    cache_key = f"diskwala_{clean_id}"
+    if cache_key in RESOLVE_CACHE:
+        cached_time, cached_res = RESOLVE_CACHE[cache_key]
+        if now - cached_time < 1200:
+            return cached_res
+
+    # Try resolving via diskwala_engine.js
+    engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
+    if os.path.exists(engine_path):
+        try:
+            cmd = ["node", engine_path, clean_id]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=12)
+            if res.returncode == 0 and res.stdout.strip():
+                lines = res.stdout.strip().splitlines()
+                for line in reversed(lines):
+                    try:
+                        data = json.loads(line)
+                        if data.get("success"):
+                            RESOLVE_CACHE[cache_key] = (time.time(), data)
+                            return data
+                    except Exception:
+                        continue
+        except Exception as e:
+            print("Diskwala engine error:", e)
+
+    # Fallback metadata result
+    display_title = f"DiskWala Video ({clean_id})"
+    fallback_res = {
+        "success": True,
+        "surl": clean_id,
+        "full_surl": clean_id,
+        "title": display_title,
+        "size": "HD Stream",
+        "size_bytes": 0,
+        "duration_str": "HD Video",
+        "thumbnail": None,
+        "stream_url": f"https://flowvideoplayer.com/?v={clean_id}",
+        "proxy_stream_url": None,
+        "download_url": f"https://www.diskwala.com/app/{clean_id}",
+        "is_hls": False,
+        "mode": "diskwala",
+        "playlist": [{
+            "index": 0,
+            "title": display_title,
+            "size": "HD Video",
+            "thumbnail": None,
+            "stream_url": f"https://flowvideoplayer.com/?v={clean_id}",
+            "download_url": f"https://www.diskwala.com/app/{clean_id}"
+        }]
+    }
+    RESOLVE_CACHE[cache_key] = (time.time(), fallback_res)
+    return fallback_res
 
 
 def is_direct_stream(raw_input: str) -> bool:
