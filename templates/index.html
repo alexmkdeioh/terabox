@@ -180,17 +180,34 @@
     <!-- Main Container -->
     <main id="mainContainer" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6 transition-all duration-300">
         
-        <!-- Hero Section & Link Input Bar -->
+        <!-- Hero Section & Multi-Box Link Input Bar -->
         <section class="glass-panel rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
             <div class="absolute -right-20 -top-20 w-64 h-64 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
+            
+            <!-- Multi-Search Mode Selector Tabs -->
+            <div class="flex items-center gap-2 p-1.5 bg-dark-bg/90 rounded-2xl border border-dark-border w-fit max-w-full overflow-x-auto mb-6 scrollbar-none">
+                <button type="button" id="tabTerabox" onclick="switchSearchMode('terabox')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow">
+                    <i data-lucide="zap" class="w-4 h-4 text-brand-300"></i>
+                    <span>⚡ TeraBox Stream</span>
+                </button>
+                <button type="button" id="tabFlare" onclick="switchSearchMode('flare')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                    <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>
+                    <span>🔥 Flare / CashSnap</span>
+                </button>
+                <button type="button" id="tabDirect" onclick="switchSearchMode('direct')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                    <i data-lucide="play-circle" class="w-4 h-4 text-emerald-400"></i>
+                    <span>🎬 Direct M3U8 / MP4</span>
+                </button>
+            </div>
+
             <div class="max-w-3xl">
-                <h1 class="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white mb-2">
+                <h1 id="heroTitle" class="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white mb-2">
                     TeraBox <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>
                 </h1>
-                <p class="text-sm sm:text-base text-slate-400 mb-3">
+                <p id="heroSubtitle" class="text-sm sm:text-base text-slate-400 mb-3">
                     Stream your videos instantly with zero ads, bypass all Cloudflare limits, and download at maximum speed.
                 </p>
-                <div class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
+                <div id="heroBadges" class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
                     <span class="text-slate-500 font-medium">Supports:</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
@@ -204,8 +221,8 @@
             <!-- Input Form -->
             <form id="streamForm" class="relative flex flex-col sm:flex-row gap-3">
                 <div class="relative flex-1">
-                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                        <i data-lucide="link-2" class="w-5 h-5"></i>
+                    <div id="inputIconWrapper" class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                        <i data-lucide="link-2" id="searchBoxIcon" class="w-5 h-5 text-brand-400"></i>
                     </div>
                     <input 
                         type="text" 
@@ -230,9 +247,18 @@
                     class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold px-7 py-3.5 rounded-xl shadow-glow hover:shadow-glow-lg transition duration-200 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
                 >
                     <i data-lucide="play" class="w-4 h-4 fill-white"></i>
-                    <span>Stream & Download</span>
+                    <span id="submitBtnText">Stream & Download</span>
                 </button>
             </form>
+
+            <!-- Quick Example Bar -->
+            <div class="flex items-center justify-between text-xs text-slate-500 mt-3 pt-2 border-t border-dark-border/40">
+                <span id="boxHintText">💡 Tip: You can paste full share links, shortlinks, or raw share IDs.</span>
+                <button type="button" id="tryExampleBtn" onclick="loadCurrentExample()" class="text-brand-400 hover:text-brand-300 font-medium hover:underline flex items-center gap-1 transition">
+                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                    <span>Try Sample Link</span>
+                </button>
+            </div>
 
             <!-- Error Notice Box -->
             <div id="errorBox" class="hidden mt-4 p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-sm flex items-start gap-3">
@@ -713,6 +739,118 @@
                 loadHlsStream(item.stream_url, item.thumbnail);
             }
             showToast(`Playing: ${item.title}`);
+        };
+
+        // Search Modes Configuration
+        let activeMode = 'terabox';
+
+        const modeConfigs = {
+            terabox: {
+                title: 'TeraBox <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>',
+                subtitle: 'Stream your videos instantly with zero ads, bypass all Cloudflare limits, and download at maximum speed.',
+                badges: `
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">terabox.app</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">1024tera.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">teraboxshare.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-400 font-mono">& all others</span>
+                `,
+                placeholder: 'Paste any TeraBox / TeraShare / TeraBoxLink URL (e.g. terasharefile.com/s/..., terabox.app/s/...)',
+                hint: '💡 Tip: You can paste full share links, shortlinks, or raw share IDs.',
+                example: 'https://teraboxshare.com/s/1d0a5b_sample',
+                btnText: 'Stream & Download',
+                icon: 'link-2',
+                iconColor: 'text-brand-400'
+            },
+            flare: {
+                title: 'Flare / CashSnap <span class="bg-gradient-to-r from-amber-400 to-rose-400 bg-clip-text text-transparent">Video Streamer</span>',
+                subtitle: 'Directly play Flare, Flaredvns, CashSnap, and HugeBox shared video streams & playlists with hardware acceleration.',
+                badges: `
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">flaredvns.com/s/...</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-orange-400 font-mono font-medium">flarekkox.com</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">hugebox / cashsnap</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">Raw Link ID</span>
+                `,
+                placeholder: 'Paste Flare link (e.g. flaredvns.com/s/2096112993141268482 or flarekkox.com/?linkId=...)',
+                hint: '🔥 Tip: Paste any flaredvns link or numeric linkId to stream instantly.',
+                example: 'https://flaredvns.com/s/2096112993141268482',
+                btnText: 'Play Flare Stream',
+                icon: 'flame',
+                iconColor: 'text-amber-400'
+            },
+            direct: {
+                title: 'Direct Video & <span class="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">M3U8 HLS Player</span>',
+                subtitle: 'Paste any direct MP4, M3U8, WebM, or HLS livestream URL for instant ad-free playback in HD theater mode.',
+                badges: `
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">.m3u8 Playlists</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-teal-400 font-mono font-medium">.mp4 Direct Videos</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-cyan-400 font-mono font-medium">.webm / .mov</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">HLS Master Streams</span>
+                `,
+                placeholder: 'Paste direct video URL (e.g. https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8 or video.mp4)',
+                hint: '🎬 Tip: Supports all standard HLS (.m3u8) live streams & MP4 files with cloud proxy bypass.',
+                example: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
+                btnText: 'Play Direct Video',
+                icon: 'play-circle',
+                iconColor: 'text-emerald-400'
+            }
+        };
+
+        window.switchSearchMode = function(mode) {
+            if (!modeConfigs[mode]) return;
+            activeMode = mode;
+            const cfg = modeConfigs[mode];
+
+            // Update Tab Styles
+            const tabs = {
+                terabox: document.getElementById('tabTerabox'),
+                flare: document.getElementById('tabFlare'),
+                direct: document.getElementById('tabDirect')
+            };
+
+            Object.keys(tabs).forEach(k => {
+                if (k === mode) {
+                    if (k === 'terabox') {
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow";
+                    } else if (k === 'flare') {
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow";
+                    } else {
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow";
+                    }
+                } else {
+                    tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80";
+                }
+            });
+
+            // Update Hero and Inputs
+            document.getElementById('heroTitle').innerHTML = cfg.title;
+            document.getElementById('heroSubtitle').textContent = cfg.subtitle;
+            document.getElementById('heroBadges').innerHTML = cfg.badges;
+            urlInput.placeholder = cfg.placeholder;
+            document.getElementById('boxHintText').textContent = cfg.hint;
+            document.getElementById('submitBtnText').textContent = cfg.btnText;
+
+            const iconEl = document.getElementById('searchBoxIcon');
+            if (iconEl) {
+                iconEl.setAttribute('data-lucide', cfg.icon);
+                iconEl.className = `w-5 h-5 ${cfg.iconColor}`;
+            }
+
+            urlInput.focus();
+            lucide.createIcons();
+        };
+
+        window.loadCurrentExample = function() {
+            const cfg = modeConfigs[activeMode];
+            if (cfg && cfg.example) {
+                urlInput.value = cfg.example;
+                clearBtn.classList.remove('hidden');
+                urlInput.focus();
+            }
         };
 
         // Form Submit Handler

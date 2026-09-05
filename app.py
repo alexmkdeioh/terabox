@@ -4,10 +4,18 @@ import csv
 import io
 import json
 import time
+import base64
 import sqlite3
 import requests
 from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
+
+try:
+    from Crypto.Cipher import AES
+    from Crypto.Util.Padding import unpad
+    HAS_CRYPTO = True
+except ImportError:
+    HAS_CRYPTO = False
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "terastream_secure_session_key_2026")
@@ -256,6 +264,197 @@ def extract_surl(raw_input: str) -> str:
     return ""
 
 
+def decrypt_flare_data(encrypted_b64: str, secret_key_b64: str) -> str:
+    """Decrypts AES-ECB (PKCS7) stream data from Flare/CashSnap using the file secret key."""
+    if not HAS_CRYPTO or not encrypted_b64 or not secret_key_b64:
+        return ""
+    try:
+        ciphertext = base64.b64decode(encrypted_b64)
+        key = base64.b64decode(secret_key_b64)
+        cipher = AES.new(key, AES.MODE_ECB)
+        decrypted = unpad(cipher.decrypt(ciphertext), AES.block_size)
+        return decrypted.decode('utf-8')
+    except Exception as e:
+        print("Decrypt flare data error:", e)
+        return ""
+
+
+def is_flare_link(raw_input: str) -> bool:
+    """Detects if input is a Flare / CashSnap / HugeBox / Flaredvns link or numeric link ID."""
+    if not raw_input:
+        return False
+    clean = raw_input.strip().lower()
+    return any(k in clean for k in ["flaredvns", "flarekkox", "flareotvd", "flarethla", "flarewliv", "hugebox", "cashsnap", "linkid="]) or (re.match(r'^\d{16,25}$', clean) is not None)
+
+
+def extract_flare_id(raw_input: str) -> str:
+    """Extracts numeric link ID from Flare / Flaredvns / CashSnap links."""
+    clean = raw_input.strip()
+    m1 = re.search(r'linkId=(\d+)', clean, re.IGNORECASE)
+    if m1:
+        return m1.group(1)
+    m2 = re.search(r'/s/(\d{15,25})', clean)
+    if m2:
+        return m2.group(1)
+    m3 = re.search(r'\b(\d{16,25})\b', clean)
+    if m3:
+        return m3.group(1)
+    return ""
+
+
+def resolve_flare_stream(raw_url_or_id: str) -> dict:
+    """Resolves video streams and playlists from Flare / Flaredvns / CashSnap links."""
+    clean_id = extract_flare_id(raw_url_or_id)
+    if not clean_id:
+        return {"success": False, "error": "Please enter a valid Flare / Flaredvns link or Link ID."}
+
+    now = time.time()
+    cache_key = f"flare_{clean_id}"
+    if cache_key in RESOLVE_CACHE:
+        cached_time, cached_res = RESOLVE_CACHE[cache_key]
+        if now - cached_time < 1200:
+            return cached_res
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Content-Type': 'application/json',
+    }
+
+    api_hosts = [
+        "https://api.cshsnpcwio.com",
+        "https://api.cashsnapnowhawk.com"
+    ]
+
+    files = []
+    for host in api_hosts:
+        try:
+            r = requests.post(f"{host}/v1/h5/share/link/files/page", json={"link_id": clean_id, "page": 1, "size": 50}, headers=headers, timeout=8)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("files"):
+                    files = data["files"]
+                    break
+        except Exception:
+            continue
+
+    if not files:
+        return {
+            "success": False,
+            "error": f"Flare link (ID: {clean_id}) has expired, been deleted by the owner, or is no longer accessible.",
+            "surl": clean_id,
+            "mode": "flare"
+        }
+
+    playlist = []
+    for idx, f in enumerate(files):
+        file_id = f.get("file_id")
+        uid = f.get("uid")
+        secret_key = f.get("secretKey") or f.get("secret_key")
+        title = f.get("file_name") or f.get("title") or f"Flare Video {idx+1}"
+        size = f.get("file_size") or f.get("size") or "HD Video"
+        thumbnail = f.get("thumbnail") or f.get("cover")
+
+        stream_url = None
+        for host in api_hosts:
+            try:
+                r_dl = requests.post(f"{host}/v1/h5/download_file_url", json={"uid": uid, "file_id": file_id}, headers=headers, timeout=8)
+                if r_dl.status_code == 200 and r_dl.text:
+                    resp_json = r_dl.json()
+                    enc_data = resp_json.get("data") if isinstance(resp_json, dict) else r_dl.text.strip('"')
+                    if enc_data and secret_key:
+                        stream_url = decrypt_flare_data(enc_data, secret_key)
+                        if stream_url:
+                            break
+            except Exception:
+                continue
+
+        playlist.append({
+            "index": idx,
+            "title": title,
+            "size": size,
+            "thumbnail": thumbnail,
+            "stream_url": stream_url,
+            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
+            "download_url": stream_url
+        })
+
+    first = playlist[0]
+    result = {
+        "success": True,
+        "surl": clean_id,
+        "full_surl": clean_id,
+        "title": first["title"],
+        "size": first["size"],
+        "size_bytes": 0,
+        "duration_str": "Full HD",
+        "thumbnail": first["thumbnail"],
+        "stream_url": first["stream_url"],
+        "proxy_stream_url": first.get("proxy_stream_url"),
+        "download_url": first["download_url"],
+        "is_hls": bool(first["stream_url"] and ".m3u8" in first["stream_url"]),
+        "mode": "flare",
+        "playlist": playlist
+    }
+    RESOLVE_CACHE[cache_key] = (time.time(), result)
+    return result
+
+
+def is_direct_stream(raw_input: str) -> bool:
+    """Detects if input is a direct video (.mp4, .m3u8, .webm) URL."""
+    if not raw_input:
+        return False
+    clean = raw_input.strip().lower()
+    return clean.startswith("http") and any(ext in clean for ext in [".m3u8", ".mp4", ".webm", ".mkv", ".mov"])
+
+
+def resolve_direct_stream(raw_input: str) -> dict:
+    """Prepares direct streaming player payload for MP4 / M3U8 links."""
+    clean = raw_input.strip()
+    is_hls = ".m3u8" in clean.lower()
+    parsed_path = urlparse(clean).path
+    filename = os.path.basename(parsed_path) or "Direct Stream Video"
+    
+    return {
+        "success": True,
+        "surl": "direct",
+        "full_surl": "direct",
+        "title": f"Direct: {filename}",
+        "size": "Direct Stream",
+        "size_bytes": 0,
+        "duration_str": "HD Quality",
+        "thumbnail": None,
+        "stream_url": clean,
+        "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
+        "download_url": clean if not is_hls else None,
+        "is_hls": is_hls,
+        "mode": "direct",
+        "playlist": [{
+            "index": 0,
+            "title": filename,
+            "size": "Direct Video",
+            "thumbnail": None,
+            "stream_url": clean,
+            "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
+            "download_url": clean if not is_hls else None
+        }]
+    }
+
+
+def resolve_universal_stream(raw_input: str) -> dict:
+    """Intelligently routes any input to TeraBox, Flare/CashSnap, or Direct Video player."""
+    clean = raw_input.strip()
+    if not clean:
+        return {"success": False, "error": "Please enter a valid link."}
+
+    if is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "flaredvns", "flarekkox"]):
+        return resolve_direct_stream(clean)
+
+    if is_flare_link(clean):
+        return resolve_flare_stream(clean)
+
+    return resolve_terabox_stream(clean)
+
+
 # In-memory resolution cache for instant 0ms responses
 RESOLVE_CACHE = {}
 
@@ -288,6 +487,7 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
         "download_url": None,
         "is_hls": False,
         "embed_url": f"https://www.terabox.app/sharing/embed?surl={full_surl}",
+        "mode": "terabox",
         "playlist": []
     }
 
@@ -371,13 +571,13 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
 def index():
     query_url = request.args.get('url') or request.args.get('surl')
     if query_url:
-        info = resolve_terabox_stream(query_url)
+        info = resolve_universal_stream(query_url)
         user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
         user_agent = request.headers.get('User-Agent', 'Unknown')
         title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
         log_search(
             searched_url=query_url,
-            surl=info.get("surl") or extract_surl(query_url),
+            surl=info.get("surl") or extract_surl(query_url) or extract_flare_id(query_url),
             video_title=title_to_log,
             video_size=info.get("size", "HD Video"),
             stream_url=info.get("stream_url", ""),
@@ -400,17 +600,13 @@ def index():
 
 @app.route('/play/<surl>')
 def play_surl(surl):
-    clean_surl = extract_surl(surl)
-    if not clean_surl:
-        return redirect(url_for('index'))
-    
-    info = resolve_terabox_stream(clean_surl)
+    info = resolve_universal_stream(surl)
     user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
     user_agent = request.headers.get('User-Agent', 'Unknown')
     title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
     log_search(
-        searched_url=f"https://teraboxshare.com/s/1{clean_surl}",
-        surl=clean_surl,
+        searched_url=f"https://teraboxshare.com/s/1{surl}" if not is_flare_link(surl) else surl,
+        surl=info.get("surl") or surl,
         video_title=title_to_log,
         video_size=info.get("size", "HD Video"),
         stream_url=info.get("stream_url", ""),
@@ -421,7 +617,7 @@ def play_surl(surl):
     return render_template(
         "index.html",
         initial_data=info if info.get("success") else None,
-        initial_url=f"https://teraboxshare.com/s/1{clean_surl}"
+        initial_url=surl
     )
 
 
@@ -435,36 +631,18 @@ def api_resolve():
         raw_input = request.args.get('url') or request.args.get('surl') or ""
 
     if not raw_input:
-        return jsonify({"success": False, "error": "No TeraBox link provided."}), 400
+        return jsonify({"success": False, "error": "No link provided. Please paste a video link."}), 400
 
     user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
     user_agent = request.headers.get('User-Agent', 'Unknown')
 
-    surl = extract_surl(raw_input)
-    if not surl:
-        # Save search link even if formatting failed so admin never misses a user attempt
-        log_search(
-            searched_url=raw_input,
-            surl="",
-            video_title="[Invalid Link Format]",
-            video_size="N/A",
-            stream_url="",
-            download_url="",
-            user_ip=user_ip,
-            user_agent=user_agent
-        )
-        return jsonify({
-            "success": False, 
-            "error": "Invalid TeraBox link. Please provide a valid URL like https://teraboxshare.com/s/..."
-        }), 400
-
-    stream_info = resolve_terabox_stream(raw_input)
+    stream_info = resolve_universal_stream(raw_input)
 
     # Guaranteed logging for every search query (success or failed/expired)
     title_to_log = stream_info.get("title") if stream_info.get("success") else f"[Unresolved / Expired: {stream_info.get('error', 'Error')}]"
     log_search(
         searched_url=raw_input,
-        surl=stream_info.get("surl") or surl,
+        surl=stream_info.get("surl") or extract_surl(raw_input) or extract_flare_id(raw_input),
         video_title=title_to_log,
         video_size=stream_info.get("size", "HD Video"),
         stream_url=stream_info.get("stream_url", ""),
