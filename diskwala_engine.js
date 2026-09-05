@@ -5,18 +5,18 @@ import path from 'node:path';
 
 function findBrowser() {
   const paths = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser'
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
   ];
   for (const p of paths) {
     if (fs.existsSync(p)) return p;
   }
-  return process.platform === 'win32' ? 'chrome.exe' : 'google-chrome';
+  return process.platform === 'win32' ? 'chrome.exe' : 'chromium';
 }
 
 function cleanFilename(rawName, extension) {

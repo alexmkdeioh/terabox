@@ -498,73 +498,8 @@ def is_diskwala_link(raw_input: str) -> bool:
     return bool(re.fullmatch(r'[a-fA-F0-9]{24}', raw_input.strip()))
 
 
-_DW_SESSION = None
-_DW_CSRF_TOKEN = None
-_DW_CSRF_TIME = 0
-
-def get_diskwala_session():
-    """Maintains an active HTTP session with cached CSRF token for sub-second DiskWala lookups."""
-    global _DW_SESSION, _DW_CSRF_TOKEN, _DW_CSRF_TIME
-    now = time.time()
-    if _DW_SESSION and _DW_CSRF_TOKEN and (now - _DW_CSRF_TIME < 600):
-        return _DW_SESSION, _DW_CSRF_TOKEN
-
-    try:
-        s = requests.Session()
-        s.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://diskwaladownloader.flowvideoplayer.com/'
-        })
-        r_home = s.get('https://diskwaladownloader.flowvideoplayer.com/', timeout=8)
-        m_csrf = re.search(r'<meta\s+name=["\']csrf-token["\']\s+content=["\']([^"\']+)["\']', r_home.text)
-        if m_csrf:
-            _DW_SESSION = s
-            _DW_CSRF_TOKEN = m_csrf.group(1)
-            _DW_CSRF_TIME = now
-            return _DW_SESSION, _DW_CSRF_TOKEN
-    except Exception as e:
-        print("Diskwala session init error:", e)
-
-    return requests.Session(), None
-
-
-def fetch_diskwala_direct_metadata(clean_id: str) -> dict:
-    """Fetches high-accuracy file metadata (title, size, thumbnail) directly via DiskWala API."""
-    try:
-        s, csrf_tok = get_diskwala_session()
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-            'Origin': 'https://diskwaladownloader.flowvideoplayer.com',
-            'Referer': 'https://diskwaladownloader.flowvideoplayer.com/'
-        }
-        if csrf_tok:
-            headers['X-CSRF-TOKEN'] = csrf_tok
-
-        r_search = s.post(
-            'https://diskwaladownloader.flowvideoplayer.com/searchVideo',
-            json={'url': f'https://www.diskwala.com/app/{clean_id}'},
-            headers=headers,
-            timeout=14
-        )
-        if r_search.status_code == 200:
-            data = r_search.json()
-            if data.get("status") and data.get("response") and len(data["response"]) > 0:
-                item = data["response"][0]
-                return {
-                    "title": item.get("file_name") or f"DiskWala Video ({clean_id})",
-                    "size": item.get("file_size") or "HD Video",
-                    "thumbnail": item.get("thumbnail") or None
-                }
-    except Exception as e:
-        print("Diskwala fast direct search error:", e)
-    return None
-
-
 def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves video streams, file metadata, and download links from DiskWala URLs."""
+    """Resolves video streams, file metadata, and download links exclusively via diskwala.net engine."""
     clean_id = extract_diskwala_id(raw_url_or_id)
     if not clean_id:
         return {"success": False, "error": "Please enter a valid DiskWala link or 24-character Link ID."}
@@ -576,87 +511,29 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         if (now - cached_time < 1200) and cached_res.get("stream_url"):
             return cached_res
 
-    # 1. Primary Engine: Extract direct video stream and metadata via diskwala_engine.js
+    # Primary & Exclusive Engine: diskwala.net via diskwala_engine.js
     engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
     if os.path.exists(engine_path):
         try:
             cmd = ["node", engine_path, clean_id]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if res.returncode == 0 and res.stdout.strip():
                 lines = res.stdout.strip().splitlines()
                 for line in reversed(lines):
                     try:
                         data = json.loads(line)
-                        if data.get("success") and data.get("stream_url"):
-                            RESOLVE_CACHE[cache_key] = (now, data)
-                            return data
-                        elif data.get("success") and data.get("title") and not data.get("title").startswith("DiskWala Video ("):
+                        if data.get("success") and (data.get("stream_url") or data.get("download_url")):
                             RESOLVE_CACHE[cache_key] = (now, data)
                             return data
                     except Exception:
                         continue
         except Exception as e:
-            print("Diskwala engine execution error:", e)
+            print("Diskwala.net engine error:", e)
 
-    # 2. Fallback: Fast Direct Metadata Lookup via official search API
-    meta = fetch_diskwala_direct_metadata(clean_id)
-    
-    title = (meta.get("title") if meta else None) or f"DiskWala Video ({clean_id})"
-    size = (meta.get("size") if meta else None) or "HD Video"
-    thumbnail = meta.get("thumbnail") if meta else None
-
-    download_formats = [
-        {
-            "label": f"Download HD File ({size})",
-            "quality": f"Full HD Video ({size})",
-            "resolution": "Full HD",
-            "ext": "mp4",
-            "size": size,
-            "url": f"https://www.diskwala.com/app/{clean_id}",
-            "download_url": f"https://www.diskwala.com/app/{clean_id}",
-            "is_direct": True,
-            "mode": "diskwala"
-        },
-        {
-            "label": "Open in DiskWala App",
-            "quality": "Official DiskWala App",
-            "resolution": "Mobile App",
-            "ext": "app",
-            "size": size,
-            "url": f"https://www.diskwala.com/app/{clean_id}",
-            "download_url": f"https://www.diskwala.com/app/{clean_id}",
-            "is_direct": False,
-            "mode": "diskwala"
-        }
-    ]
-
-    result = {
-        "success": True,
-        "surl": clean_id,
-        "full_surl": clean_id,
-        "title": title,
-        "size": size,
-        "size_bytes": 0,
-        "duration_str": "HD Video",
-        "thumbnail": thumbnail,
-        "stream_url": None,
-        "proxy_stream_url": None,
-        "download_url": f"https://www.diskwala.com/app/{clean_id}",
-        "download_formats": download_formats,
-        "is_hls": False,
-        "mode": "diskwala",
-        "playlist": [{
-            "index": 0,
-            "title": title,
-            "size": size,
-            "thumbnail": thumbnail,
-            "stream_url": None,
-            "download_url": f"https://www.diskwala.com/app/{clean_id}"
-        }]
+    return {
+        "success": False,
+        "error": "Failed to extract DiskWala video stream. Please verify the link and try again."
     }
-
-    RESOLVE_CACHE[cache_key] = (time.time(), result)
-    return result
 
 
 def is_direct_stream(raw_input: str) -> bool:
