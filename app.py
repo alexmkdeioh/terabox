@@ -7,6 +7,7 @@ import time
 import base64
 import sqlite3
 import requests
+import threading
 from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
 
@@ -109,8 +110,8 @@ def init_db():
 init_db()
 
 
-def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
-    """Guarantees every user search query is saved to lifetime persistent database."""
+def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
+    """Worker function executed in background thread to write database records without blocking API."""
     try:
         db_type, conn = get_db_connection()
         with conn:
@@ -146,7 +147,16 @@ def log_search(searched_url, surl, video_title, video_size, stream_url, download
             conn.commit()
         conn.close()
     except Exception as e:
-        print("Log search error:", e)
+        print("Async log search error:", e)
+
+
+def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
+    """Guarantees every user search query is saved asynchronously in background thread for 0ms API response!"""
+    threading.Thread(
+        target=_async_log_worker,
+        args=(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent),
+        daemon=True
+    ).start()
 
 
 # ----------------- IN-MEMORY RESOLUTION CACHE -----------------
@@ -1387,9 +1397,16 @@ def stream_proxy():
         return Response(f"Proxy stream error: {str(e)}", status=500)
 
 
-@app.route('/api/health')
+@app.route('/ping', methods=['GET', 'HEAD'])
+def ping():
+    """Ultra-fast ping endpoint for UptimeRobot, Render, and health monitors (keeps server awake 24/7)."""
+    return jsonify({"status": "ok", "message": "pong", "service": "TeraStream Pro Native"}), 200
+
+
+@app.route('/api/health', methods=['GET', 'HEAD'])
 def health():
-    return jsonify({"status": "ok", "service": "TeraStream Pro Native", "port": PORT})
+    """Detailed health check endpoint for monitoring uptime, memory, and services."""
+    return jsonify({"status": "ok", "service": "TeraStream Pro Native", "port": PORT, "crypto": HAS_CRYPTO, "ytdlp": HAS_YTDLP}), 200
 
 
 # ----------------- ADMIN PANEL ROUTES -----------------
