@@ -264,16 +264,43 @@ def extract_surl(raw_input: str) -> str:
     return ""
 
 
-def decrypt_flare_data(encrypted_b64: str, secret_key_b64: str) -> str:
-    """Decrypts AES-ECB (PKCS7) stream data from Flare/CashSnap using the file secret key."""
-    if not HAS_CRYPTO or not encrypted_b64 or not secret_key_b64:
+FLARE_AES_KEY = b"CMrhmcd9oFUjWBBleiMfS0BiBfupaVsG"
+FLARE_AES_IV = b"2Xk4dLo38c9Z2Q2a"
+
+
+def decrypt_flare_data(encrypted_b64: str, key_str: str = None) -> str:
+    """Decrypts AES-CBC stream data from Flare/CashSnap using IV 2Xk4dLo38c9Z2Q2a."""
+    if not HAS_CRYPTO or not encrypted_b64:
         return ""
     try:
-        ciphertext = base64.b64decode(encrypted_b64)
-        key = base64.b64decode(secret_key_b64)
-        cipher = AES.new(key, AES.MODE_ECB)
-        decrypted = unpad(cipher.decrypt(ciphertext), AES.block_size)
-        return decrypted.decode('utf-8')
+        clean_ciphertext = encrypted_b64.strip('"').strip()
+        raw_cipher = base64.b64decode(clean_ciphertext)
+
+        keys_to_try = [FLARE_AES_KEY]
+        if key_str:
+            keys_to_try.insert(0, key_str.encode('utf-8'))
+
+        for k in keys_to_try:
+            try:
+                cipher = AES.new(k, AES.MODE_CBC, FLARE_AES_IV)
+                decrypted = unpad(cipher.decrypt(raw_cipher), AES.block_size)
+                res = decrypted.decode('utf-8')
+                if res.startswith("http"):
+                    return res
+            except Exception:
+                pass
+
+        for k in keys_to_try:
+            try:
+                cipher = AES.new(k, AES.MODE_ECB)
+                decrypted = unpad(cipher.decrypt(raw_cipher), AES.block_size)
+                res = decrypted.decode('utf-8')
+                if res.startswith("http"):
+                    return res
+            except Exception:
+                pass
+
+        return ""
     except Exception as e:
         print("Decrypt flare data error:", e)
         return ""
@@ -318,6 +345,8 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Content-Type': 'application/json',
+        'Origin': 'https://www.flarewliv.com',
+        'Referer': f'https://www.flarewliv.com/?linkId={clean_id}'
     }
 
     api_hosts = [
@@ -328,7 +357,12 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
     files = []
     for host in api_hosts:
         try:
-            r = requests.post(f"{host}/v1/h5/share/link/files/page", json={"link_id": clean_id, "page": 1, "size": 50}, headers=headers, timeout=8)
+            r = requests.post(
+                f"{host}/v1/h5/share/link/files/page",
+                json={"link_id": clean_id, "page": 0, "size": 20, "file_type": "FILE"},
+                headers=headers,
+                timeout=8
+            )
             if r.status_code == 200:
                 data = r.json()
                 if data.get("files"):
@@ -347,22 +381,24 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
 
     playlist = []
     for idx, f in enumerate(files):
-        file_id = f.get("file_id")
-        uid = f.get("uid")
-        secret_key = f.get("secretKey") or f.get("secret_key")
-        title = f.get("file_name") or f.get("title") or f"Flare Video {idx+1}"
-        size = f.get("file_size") or f.get("size") or "HD Video"
-        thumbnail = f.get("thumbnail") or f.get("cover")
+        file_id = f.get("file_id") or f.get("id")
+        namespace = f.get("namespace") or {}
+        uid = namespace.get("name") or namespace.get("id") or f.get("uid") or ""
+        file_meta = f.get("file_meta") or {}
+
+        title = file_meta.get("display_name") or f.get("file_name") or f"Flare Video {idx+1}"
+        raw_size = file_meta.get("size") or f.get("file_size") or 0
+        size_str = f"{raw_size / (1024 * 1024):.1f} MB" if isinstance(raw_size, (int, float)) and raw_size > 0 else "HD Video"
+        thumbnail = file_meta.get("thumbnail") or f.get("thumbnail") or ""
 
         stream_url = None
         for host in api_hosts:
             try:
                 r_dl = requests.post(f"{host}/v1/h5/download_file_url", json={"uid": uid, "file_id": file_id}, headers=headers, timeout=8)
                 if r_dl.status_code == 200 and r_dl.text:
-                    resp_json = r_dl.json()
-                    enc_data = resp_json.get("data") if isinstance(resp_json, dict) else r_dl.text.strip('"')
-                    if enc_data and secret_key:
-                        stream_url = decrypt_flare_data(enc_data, secret_key)
+                    enc_data = r_dl.text.strip('"').strip()
+                    if enc_data:
+                        stream_url = decrypt_flare_data(enc_data)
                         if stream_url:
                             break
             except Exception:
@@ -371,7 +407,7 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
         playlist.append({
             "index": idx,
             "title": title,
-            "size": size,
+            "size": size_str,
             "thumbnail": thumbnail,
             "stream_url": stream_url,
             "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
@@ -671,7 +707,18 @@ def stream_proxy():
     try:
         if '.m3u8' in target_url or 'get_m3u8' in target_url:
             r = requests.get(target_url, headers=req_headers, timeout=12)
-            resp = Response(r.content, status=r.status_code, content_type="application/vnd.apple.mpegurl; charset=utf-8")
+            content = r.text
+            base_url = target_url.rsplit('/', 1)[0] + '/'
+            lines = []
+            for line in content.splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith('#') and not stripped.startswith('http'):
+                    full_segment_url = base_url + stripped
+                    lines.append(f"/api/stream/proxy?url={quote(full_segment_url, safe='')}")
+                else:
+                    lines.append(line)
+            rewritten_m3u8 = '\n'.join(lines).encode('utf-8')
+            resp = Response(rewritten_m3u8, status=r.status_code, content_type="application/vnd.apple.mpegurl; charset=utf-8")
             resp.headers['Access-Control-Allow-Origin'] = '*'
             resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
             resp.headers['Cache-Control'] = 'no-cache'
