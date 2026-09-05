@@ -188,7 +188,11 @@
             <div class="flex items-center gap-2 p-1.5 bg-dark-bg/90 rounded-2xl border border-dark-border w-fit max-w-full overflow-x-auto mb-6 scrollbar-none">
                 <button type="button" id="tabTerabox" onclick="switchSearchMode('terabox')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow">
                     <i data-lucide="zap" class="w-4 h-4 text-brand-300"></i>
-                    <span>⚡ TeraBox Stream</span>
+                    <span>⚡ TeraBox</span>
+                </button>
+                <button type="button" id="tabYoutube" onclick="switchSearchMode('youtube')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                    <i data-lucide="youtube" class="w-4 h-4 text-rose-500"></i>
+                    <span>▶️ YouTube Stream & DL</span>
                 </button>
                 <button type="button" id="tabFlare" onclick="switchSearchMode('flare')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
                     <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>
@@ -374,6 +378,35 @@
                 </div>
             </div>
 
+            <!-- Multi-Quality Download Formats Card -->
+            <div id="formatSection" class="{% if not initial_data or not initial_data.download_formats %}hidden{% endif %} glass-panel rounded-2xl p-5 border border-dark-border">
+                <div class="flex items-center justify-between gap-3 mb-3">
+                    <div class="flex items-center gap-2">
+                        <i data-lucide="download-cloud" class="w-5 h-5 text-emerald-400"></i>
+                        <h3 class="font-heading font-bold text-base text-white">Download Formats & Resolutions</h3>
+                    </div>
+                    <span class="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 px-2.5 py-0.5 rounded-full font-semibold">1-Click High-Speed Attachment</span>
+                </div>
+                <div id="formatGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {% if initial_data and initial_data.download_formats %}
+                    {% for df in initial_data.download_formats %}
+                    <a href="{{ df.download_url }}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+                        <div class="flex items-center gap-2.5 min-w-0">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
+                                <i data-lucide="download" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-xs font-semibold text-white truncate">{{ df.quality }}</p>
+                                <span class="text-[10px] text-slate-400 font-mono">{{ df.size }} • {{ df.ext|upper }}</span>
+                            </div>
+                        </div>
+                        <span class="text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">↓</span>
+                    </a>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+
             <!-- Multi-Video Folder Playlist (If album/folder contains multiple videos) -->
             <div id="playlistSection" class="{% if not initial_data or not initial_data.playlist or initial_data.playlist|length <= 1 %}hidden{% endif %} glass-panel rounded-2xl p-5 border border-dark-border">
                 <div class="flex items-center gap-2 mb-3">
@@ -539,8 +572,8 @@
             }
         }
 
-        // Load HLS Video Stream
-        function loadHlsStream(streamUrl, posterUrl) {
+        // Play Video Stream (HLS or Progressive MP4)
+        function loadHlsStream(streamUrl, posterUrl, isHls = false) {
             nativePlayerContainer.classList.remove('hidden');
             iframePlayerContainer.classList.add('hidden');
 
@@ -553,7 +586,9 @@
                 hlsInstance = null;
             }
 
-            if (Hls.isSupported() && streamUrl) {
+            const actuallyHls = isHls || (streamUrl && (streamUrl.includes('.m3u8') || streamUrl.includes('get_m3u8')));
+
+            if (actuallyHls && Hls.isSupported()) {
                 hlsInstance = new Hls({
                     enableWorker: true,
                     lowLatencyMode: false,
@@ -580,7 +615,7 @@
                                     useProxyStream = true;
                                     updateRouteUI();
                                     showToast('ISP restriction detected. Auto-routing via Global Cloud Proxy...');
-                                    loadHlsStream(currentData.proxy_stream_url, currentData.thumbnail);
+                                    loadHlsStream(currentData.proxy_stream_url, currentData.thumbnail, true);
                                 } else {
                                     hlsInstance.startLoad();
                                 }
@@ -594,11 +629,18 @@
                         }
                     }
                 });
-            } else if (nativeVideo.canPlayType('application/vnd.apple.mpegurl')) {
+            } else if (actuallyHls && nativeVideo.canPlayType('application/vnd.apple.mpegurl')) {
                 nativeVideo.src = streamUrl;
                 initPlyr();
+                nativeVideo.play().catch(() => {});
+            } else if (streamUrl) {
+                // Direct MP4 / Progressive Stream / YouTube Stream
+                nativeVideo.src = streamUrl;
+                initPlyr();
+                nativeVideo.play().catch(() => {});
+            } else if (currentData && currentData.embed_url) {
+                loadIframeMirror(currentData.embed_url);
             } else {
-                // Fallback to Iframe
                 loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
             }
         }
@@ -629,7 +671,7 @@
         // Reload Player
         reloadPlayerBtn.addEventListener('click', () => {
             if (currentData && currentData.stream_url) {
-                loadHlsStream(currentData.stream_url, currentData.thumbnail);
+                loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
             }
             showToast('Reloading player...');
         });
@@ -638,7 +680,7 @@
         copyStreamUrlBtn.addEventListener('click', () => {
             const urlToCopy = currentData.stream_url || window.location.href;
             navigator.clipboard.writeText(urlToCopy);
-            showToast('M3U8 Stream URL copied!');
+            showToast('Stream URL copied!');
         });
 
         copyShareBtn.addEventListener('click', () => {
@@ -646,6 +688,32 @@
             navigator.clipboard.writeText(shareUrl);
             showToast('Shareable Link copied!');
         });
+
+        // Render Multi-Quality Download Formats
+        function renderDownloadFormats(formats) {
+            const formatSection = document.getElementById('formatSection');
+            const formatGrid = document.getElementById('formatGrid');
+            if (!formats || formats.length === 0) {
+                formatSection.classList.add('hidden');
+                return;
+            }
+            formatGrid.innerHTML = formats.map(df => `
+                <a href="${df.download_url}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+                    <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
+                            <i data-lucide="${(df.quality && df.quality.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
+                        </div>
+                        <div class="min-w-0">
+                            <p class="text-xs font-semibold text-white truncate">${df.quality}</p>
+                            <span class="text-[10px] text-slate-400 font-mono">${df.size} • ${(df.ext || 'MP4').toUpperCase()}</span>
+                        </div>
+                    </div>
+                    <span class="text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">↓</span>
+                </a>
+            `).join('');
+            formatSection.classList.remove('hidden');
+            lucide.createIcons();
+        }
 
         // LocalStorage History
         const HISTORY_KEY = 'terastream_native_history';
@@ -679,7 +747,9 @@
                 <div class="glass-panel p-3.5 rounded-xl border border-dark-border hover:border-brand-500/40 transition group flex flex-col justify-between gap-3">
                     <div>
                         <div class="flex items-center justify-between gap-2 mb-1.5">
-                            <span class="text-[11px] font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded border border-brand-500/20">HD Video</span>
+                            <span class="text-[11px] font-bold ${item.mode === 'youtube' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : 'text-brand-400 bg-brand-500/10 border-brand-500/20'} px-2 py-0.5 rounded border">
+                                ${item.mode === 'youtube' ? '▶️ YouTube' : '⚡ Video'}
+                            </span>
                             <span class="text-[10px] text-slate-400">${item.size || 'HD'}</span>
                         </div>
                         <h5 class="text-xs font-semibold text-white truncate" title="${item.title}">${item.title}</h5>
@@ -732,7 +802,7 @@
 
             if (item.stream_url) {
                 currentData.stream_url = item.stream_url;
-                loadHlsStream(item.stream_url, item.thumbnail);
+                loadHlsStream(item.stream_url, item.thumbnail, currentData.is_hls);
             }
             showToast(`Playing: ${item.title}`);
         };
@@ -758,6 +828,23 @@
                 btnText: 'Stream & Download',
                 icon: 'link-2',
                 iconColor: 'text-brand-400'
+            },
+            youtube: {
+                title: 'YouTube <span class="bg-gradient-to-r from-rose-500 via-red-500 to-amber-400 bg-clip-text text-transparent">Stream & Multi-Quality Downloader</span>',
+                subtitle: 'Stream YouTube videos & shorts ad-free with zero buffering, and download 1080p Full HD, 720p, 480p, or high-bitrate MP3 audio.',
+                badges: `
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">youtube.com/watch</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-red-400 font-mono font-medium">youtu.be/...</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">youtube.com/shorts</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">1080p / 720p / MP3</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">Direct & Proxied</span>
+                `,
+                placeholder: 'Paste YouTube link (e.g. youtube.com/watch?v=... or youtu.be/... or shorts/...)',
+                hint: '▶️ Tip: Paste standard video URLs, youtu.be shortlinks, or YouTube Shorts for instant stream and download.',
+                btnText: 'Stream & Download',
+                icon: 'youtube',
+                iconColor: 'text-rose-500'
             },
             flare: {
                 title: 'Flare / CashSnap <span class="bg-gradient-to-r from-amber-400 to-rose-400 bg-clip-text text-transparent">Video Streamer</span>',
@@ -801,14 +888,18 @@
             // Update Tab Styles
             const tabs = {
                 terabox: document.getElementById('tabTerabox'),
+                youtube: document.getElementById('tabYoutube'),
                 flare: document.getElementById('tabFlare'),
                 direct: document.getElementById('tabDirect')
             };
 
             Object.keys(tabs).forEach(k => {
+                if (!tabs[k]) return;
                 if (k === mode) {
                     if (k === 'terabox') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow";
+                    } else if (k === 'youtube') {
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-glow";
                     } else if (k === 'flare') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow";
                     } else {
@@ -867,13 +958,16 @@
                 videoTitle.textContent = `🎬 ${data.title}`;
                 sizeText.textContent = data.size || 'HD Video';
 
-                // Download Button
+                // Primary Download Button
                 if (data.download_url) {
                     downloadBtn.href = data.download_url;
                     downloadBtn.classList.remove('hidden');
                 } else {
                     downloadBtn.classList.add('hidden');
                 }
+
+                // Render Multi-Quality Download Formats
+                renderDownloadFormats(data.download_formats);
 
                 // Playlist
                 if (currentPlaylist.length > 1) {
@@ -897,11 +991,13 @@
                     playlistSection.classList.add('hidden');
                 }
 
-                // Load Native HLS Stream
+                // Load Video Stream
                 playerSection.classList.remove('hidden');
 
                 if (data.stream_url) {
-                    loadHlsStream(data.stream_url, data.thumbnail);
+                    loadHlsStream(data.stream_url, data.thumbnail, data.is_hls);
+                } else if (data.embed_url) {
+                    loadIframeMirror(data.embed_url);
                 } else {
                     loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${data.surl}`);
                 }
@@ -910,6 +1006,7 @@
                     surl: data.surl,
                     title: data.title,
                     size: data.size,
+                    mode: data.mode || (inputVal.includes('youtu') ? 'youtube' : 'terabox'),
                     originalUrl: inputVal,
                     timestamp: Date.now()
                 });
@@ -954,8 +1051,13 @@
 
         // Initialize on load
         renderHistory();
+        if (currentData && currentData.download_formats) {
+            renderDownloadFormats(currentData.download_formats);
+        }
         if (currentData && currentData.stream_url) {
-            loadHlsStream(currentData.stream_url, currentData.thumbnail);
+            loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
+        } else if (currentData && currentData.embed_url) {
+            loadIframeMirror(currentData.embed_url);
         } else if (currentData && currentData.surl) {
             loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
         }
