@@ -1302,7 +1302,11 @@
                 playerSection.classList.remove('hidden');
 
                 if (data.mode === 'diskwala') {
-                    showDiskwalaCard(data);
+                    if (data.stream_url) {
+                        loadHlsStream(data.stream_url, data.thumbnail, false);
+                    } else {
+                        showDiskwalaCard(data);
+                    }
                 } else if (data.stream_url) {
                     loadHlsStream(data.stream_url, data.thumbnail, data.is_hls);
                 } else if (data.embed_url) {

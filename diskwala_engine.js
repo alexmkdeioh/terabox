@@ -32,22 +32,29 @@ function cleanFilename(rawName, extension) {
 
 export async function resolveDiskwalaLink(linkId) {
   const browserPath = findBrowser();
-  const port = 9333 + Math.floor(Math.random() * 500);
-  const targetUrl = `https://www.diskwala.com/app/${linkId}`;
+  const port = 9330 + Math.floor(Math.random() * 500);
+  const targetUrl = 'https://diskwala.net/';
   const tempProfile = path.join(process.env.TEMP || '/tmp', `cdp_dw_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+
+  const args = [
+    '--no-sandbox',
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-blink-features=AutomationControlled',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--mute-audio',
+    `--remote-debugging-port=${port}`,
+    `--user-data-dir=${tempProfile}`
+  ];
+  if (process.platform !== 'win32' || process.env.HEADLESS === 'true') {
+    args.unshift('--headless=new');
+  }
+  args.push(targetUrl);
 
   let browser = null;
   try {
-    browser = spawn(browserPath, [
-      '--headless=new',
-      `--remote-debugging-port=${port}`,
-      `--user-data-dir=${tempProfile}`,
-      '--no-sandbox',
-      '--disable-gpu',
-      '--disable-extensions',
-      '--mute-audio',
-      targetUrl
-    ], { stdio: 'ignore' });
+    browser = spawn(browserPath, args, { stdio: 'ignore' });
   } catch (err) {
     return {
       success: true,
@@ -75,7 +82,7 @@ export async function resolveDiskwalaLink(linkId) {
 
   let wsUrl = null;
 
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 30; i++) {
     await new Promise(r => setTimeout(r, 200));
     try {
       const data = await new Promise((resolve, reject) => {
@@ -88,7 +95,7 @@ export async function resolveDiskwalaLink(linkId) {
       });
 
       const targets = JSON.parse(data);
-      const pageTarget = targets.find(t => t.type === 'page' && t.webSocketDebuggerUrl);
+      const pageTarget = targets.find(t => t.type === 'page' && (t.url.includes('diskwala') || t.webSocketDebuggerUrl));
       if (pageTarget) {
         wsUrl = pageTarget.webSocketDebuggerUrl;
         break;
@@ -107,12 +114,11 @@ export async function resolveDiskwalaLink(linkId) {
     let id = 1;
     const pendingReqs = new Map();
     let fileInfo = null;
-    let uploader = null;
 
     const timeoutTimer = setTimeout(() => {
       cleanup();
       buildResponse();
-    }, 10000);
+    }, 25000);
 
     function cleanup() {
       clearTimeout(timeoutTimer);
@@ -124,34 +130,61 @@ export async function resolveDiskwalaLink(linkId) {
     }
 
     function buildResponse() {
-      const name = fileInfo?.name ? cleanFilename(fileInfo.name) : `DiskWala File (${linkId})`;
+      const name = fileInfo?.name ? cleanFilename(fileInfo.name, fileInfo.extension) : `DiskWala Video (${linkId})`;
       const rawBytes = fileInfo?.size || 0;
       const sizeStr = rawBytes > 0 ? `${(rawBytes / (1024 * 1024)).toFixed(2)} MB` : "HD Video";
-      const uploaderName = uploader?.name || "DiskWala Creator";
-      const displayTitle = fileInfo?.name ? `${name}` : `DiskWala Video (${linkId})`;
+      const directStreamUrl = fileInfo?.downloadUrl || null;
+      const thumb = fileInfo?.thumb || null;
+
+      const downloadFormats = [];
+      if (directStreamUrl) {
+        downloadFormats.push({
+          label: `Direct Fast Download (${sizeStr})`,
+          quality: `High Speed MP4 (${sizeStr})`,
+          resolution: "Full HD",
+          ext: fileInfo?.extension || "mp4",
+          size: sizeStr,
+          url: directStreamUrl,
+          download_url: directStreamUrl,
+          is_direct: true,
+          mode: "diskwala"
+        });
+      }
+      downloadFormats.push({
+        label: "Open in DiskWala App",
+        quality: "Official DiskWala App",
+        resolution: "Mobile App",
+        ext: "app",
+        size: sizeStr,
+        url: `https://www.diskwala.com/app/${linkId}`,
+        download_url: `https://www.diskwala.com/app/${linkId}`,
+        is_direct: false,
+        mode: "diskwala"
+      });
 
       const result = {
         success: true,
         surl: linkId,
         full_surl: linkId,
-        title: displayTitle,
-        uploader: uploaderName,
+        title: name,
+        uploader: "DiskWala Creator",
         size: sizeStr,
         size_bytes: rawBytes,
-        duration_str: "HD Stream",
-        thumbnail: null,
-        stream_url: null,
-        proxy_stream_url: null,
-        download_url: `https://www.diskwala.com/app/${linkId}`,
+        duration_str: "HD Video",
+        thumbnail: thumb,
+        stream_url: directStreamUrl,
+        proxy_stream_url: directStreamUrl,
+        download_url: directStreamUrl || `https://www.diskwala.com/app/${linkId}`,
+        download_formats: downloadFormats,
         is_hls: false,
         mode: "diskwala",
         playlist: [{
           index: 0,
-          title: displayTitle,
+          title: name,
           size: sizeStr,
-          thumbnail: null,
-          stream_url: null,
-          download_url: `https://www.diskwala.com/app/${linkId}`
+          thumbnail: thumb,
+          stream_url: directStreamUrl,
+          download_url: directStreamUrl || `https://www.diskwala.com/app/${linkId}`
         }]
       };
 
@@ -166,43 +199,6 @@ export async function resolveDiskwalaLink(linkId) {
       });
     }
 
-    ws.onopen = async () => {
-      await send('Network.enable');
-      await send('Page.enable');
-      await send('Runtime.enable');
-
-      // Hook into Webpack in page to instantly extract temp_info
-      await new Promise(r => setTimeout(r, 2000));
-      try {
-        const evalRes = await send('Runtime.evaluate', {
-          expression: `(async () => {
-            try {
-              let api = null;
-              if (globalThis.webpackChunkDiskWala) {
-                globalThis.webpackChunkDiskWala.push([[888888], {}, (req) => {
-                  api = req(46904);
-                }]);
-              }
-              if (api && api.JR) {
-                return await new Promise(r => api.JR({ id: "${linkId}" }, res => r(res)));
-              }
-            } catch(e) {}
-            return null;
-          })()`,
-          awaitPromise: true,
-          returnByValue: true
-        });
-
-        if (evalRes?.result?.value?.data?.fileInfo) {
-          fileInfo = evalRes.result.value.data.fileInfo;
-          uploader = evalRes.result.value.data.uploader;
-          cleanup();
-          buildResponse();
-          return;
-        }
-      } catch (e) {}
-    };
-
     ws.onmessage = async (evt) => {
       const msg = JSON.parse(evt.data);
 
@@ -215,14 +211,14 @@ export async function resolveDiskwalaLink(linkId) {
 
       if (msg.method === 'Network.responseReceived') {
         const { requestId, response } = msg.params;
-        if (response.url.includes('/file/temp_info')) {
+        const url = response.url;
+        if (url.includes('/web/api/status')) {
           try {
             const bodyRes = await send('Network.getResponseBody', { requestId });
             if (bodyRes && bodyRes.body) {
-              const data = JSON.parse(bodyRes.body);
-              if (data?.fileInfo || data?.data?.fileInfo) {
-                fileInfo = data.fileInfo || data.data.fileInfo;
-                uploader = data.uploader || data.data?.uploader;
+              const parsed = JSON.parse(bodyRes.body);
+              if (parsed?.file?.downloadUrl) {
+                fileInfo = parsed.file;
                 cleanup();
                 buildResponse();
               }
@@ -235,6 +231,64 @@ export async function resolveDiskwalaLink(linkId) {
     ws.onerror = () => {
       cleanup();
       buildResponse();
+    };
+
+    ws.onopen = async () => {
+      await send('Network.enable');
+      await send('Page.enable');
+      await send('Runtime.enable');
+
+      // Wait until input with placeholder 'Paste Diskwala link' is rendered
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const check = await send('Runtime.evaluate', {
+          expression: `Boolean(document.querySelector('input[placeholder*="Diskwala"]'))`,
+          returnByValue: true
+        });
+        if (check?.result?.value === true) break;
+      }
+
+      const targetLink = `https://www.diskwala.com/app/${linkId}`;
+
+      await send('Runtime.evaluate', {
+        expression: `(() => {
+          const input = document.querySelector('input[placeholder*="Diskwala"]');
+          if (input) {
+            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+            nativeInputValueSetter.call(input, "${targetLink}");
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+            
+            setTimeout(() => {
+              const btns = Array.from(document.querySelectorAll('button'));
+              const getBtn = btns.find(b => b.innerText.trim() === 'Get');
+              if (getBtn) {
+                getBtn.click();
+              }
+            }, 300);
+          }
+        })()`
+      });
+
+      // Poll for downloadUrl or video links appearing in the DOM
+      for (let attempt = 0; attempt < 15; attempt++) {
+        await new Promise(r => setTimeout(r, 1000));
+        const pageCheck = await send('Runtime.evaluate', {
+          expression: `(() => {
+            const links = Array.from(document.querySelectorAll('a, video, source')).map(a => a.href || a.src).filter(Boolean);
+            const media = links.find(u => u.includes('s3dwfubotmark') || (u.includes('diskwala.com') && u.includes('.mp4')));
+            return media || null;
+          })()`,
+          returnByValue: true
+        });
+
+        if (pageCheck?.result?.value) {
+          fileInfo = { downloadUrl: pageCheck.result.value };
+          cleanup();
+          buildResponse();
+          return;
+        }
+      }
     };
   });
 }

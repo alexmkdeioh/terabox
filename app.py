@@ -573,43 +573,37 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
     cache_key = f"diskwala_{clean_id}"
     if cache_key in RESOLVE_CACHE:
         cached_time, cached_res = RESOLVE_CACHE[cache_key]
-        if (now - cached_time < 1200) and cached_res.get("thumbnail") and not cached_res.get("title", "").startswith("DiskWala Video ("):
+        if (now - cached_time < 1200) and cached_res.get("stream_url"):
             return cached_res
 
-    # 1. Fast Direct Metadata Lookup via official API
+    # 1. Primary Engine: Extract direct video stream and metadata via diskwala_engine.js
+    engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
+    if os.path.exists(engine_path):
+        try:
+            cmd = ["node", engine_path, clean_id]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=25)
+            if res.returncode == 0 and res.stdout.strip():
+                lines = res.stdout.strip().splitlines()
+                for line in reversed(lines):
+                    try:
+                        data = json.loads(line)
+                        if data.get("success") and data.get("stream_url"):
+                            RESOLVE_CACHE[cache_key] = (now, data)
+                            return data
+                        elif data.get("success") and data.get("title") and not data.get("title").startswith("DiskWala Video ("):
+                            RESOLVE_CACHE[cache_key] = (now, data)
+                            return data
+                    except Exception:
+                        continue
+        except Exception as e:
+            print("Diskwala engine execution error:", e)
+
+    # 2. Fallback: Fast Direct Metadata Lookup via official search API
     meta = fetch_diskwala_direct_metadata(clean_id)
     
     title = (meta.get("title") if meta else None) or f"DiskWala Video ({clean_id})"
     size = (meta.get("size") if meta else None) or "HD Video"
     thumbnail = meta.get("thumbnail") if meta else None
-
-    stream_url = None
-    is_hls = False
-
-    # 2. If direct metadata was not found, try diskwala_engine.js as fallback
-    if not meta:
-        engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
-        if os.path.exists(engine_path):
-            try:
-                cmd = ["node", engine_path, clean_id]
-                res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
-                if res.returncode == 0 and res.stdout.strip():
-                    lines = res.stdout.strip().splitlines()
-                    for line in reversed(lines):
-                        try:
-                            data = json.loads(line)
-                            if data.get("success"):
-                                if data.get("thumbnail"):
-                                    thumbnail = data["thumbnail"]
-                                if data.get("title") and not data.get("title").startswith("DiskWala Video ("):
-                                    title = data["title"]
-                                if data.get("size") and data.get("size") not in ["HD Stream", "HD Video"]:
-                                    size = data["size"]
-                                break
-                        except Exception:
-                            continue
-            except Exception as e:
-                print("Diskwala engine error:", e)
 
     download_formats = [
         {
