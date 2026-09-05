@@ -852,7 +852,7 @@
                 const res = await fetch('/api/resolve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: inputVal })
+                    body: JSON.stringify({ url: inputVal, mode: activeMode })
                 });
 
                 const data = await res.json();

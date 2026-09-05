@@ -306,27 +306,39 @@ def decrypt_flare_data(encrypted_b64: str, key_str: str = None) -> str:
         return ""
 
 
-def is_flare_link(raw_input: str) -> bool:
-    """Detects if input is a Flare / CashSnap / HugeBox / Flaredvns link or numeric link ID."""
-    if not raw_input:
-        return False
-    clean = raw_input.strip().lower()
-    return any(k in clean for k in ["flaredvns", "flarekkox", "flareotvd", "flarethla", "flarewliv", "hugebox", "cashsnap", "linkid="]) or (re.match(r'^\d{16,25}$', clean) is not None)
-
-
 def extract_flare_id(raw_input: str) -> str:
-    """Extracts numeric link ID from Flare / Flaredvns / CashSnap links."""
+    """Extracts numeric link ID from Flare / Flaredvns / CashSnap links, URLs, or raw IDs."""
+    if not raw_input:
+        return ""
     clean = raw_input.strip()
-    m1 = re.search(r'linkId=(\d+)', clean, re.IGNORECASE)
+
+    # 1. Query parameter (?linkId=... or ?link_id=... or ?id=...)
+    m1 = re.search(r'[?&#](?:linkId|link_id|linkid|id)=(\d{15,25})', clean, re.IGNORECASE)
     if m1:
         return m1.group(1)
-    m2 = re.search(r'/s/(\d{15,25})', clean)
+
+    # 2. Path pattern like /s/2096112993141268482 or /share/2096112993141268482
+    m2 = re.search(r'/(?:s|play|v|share|link)/(\d{15,25})', clean, re.IGNORECASE)
     if m2:
         return m2.group(1)
-    m3 = re.search(r'\b(\d{16,25})\b', clean)
-    if m3:
-        return m3.group(1)
+
+    # 3. Flare / CashSnap / HugeBox / BlinkNote / Flaredvns domains containing numbers
+    if any(k in clean.lower() for k in ["flare", "hugebox", "cashsnap", "flaredvns", "blinknote", "cshsnp"]):
+        m3 = re.search(r'(\d{15,25})', clean)
+        if m3:
+            return m3.group(1)
+
+    # 4. Pure numeric ID (16 to 25 digits)
+    m4 = re.search(r'\b(\d{16,25})\b', clean)
+    if m4:
+        return m4.group(1)
+
     return ""
+
+
+def is_flare_link(raw_input: str) -> bool:
+    """Detects if input is a Flare / CashSnap / HugeBox / Flaredvns link or numeric link ID."""
+    return bool(extract_flare_id(raw_input))
 
 
 def resolve_flare_stream(raw_url_or_id: str) -> dict:
@@ -449,7 +461,7 @@ def resolve_direct_stream(raw_input: str) -> dict:
     is_hls = ".m3u8" in clean.lower()
     parsed_path = urlparse(clean).path
     filename = os.path.basename(parsed_path) or "Direct Stream Video"
-    
+
     return {
         "success": True,
         "surl": "direct",
@@ -476,18 +488,21 @@ def resolve_direct_stream(raw_input: str) -> dict:
     }
 
 
-def resolve_universal_stream(raw_input: str) -> dict:
+def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
     """Intelligently routes any input to TeraBox, Flare/CashSnap, or Direct Video player."""
     clean = raw_input.strip()
     if not clean:
         return {"success": False, "error": "Please enter a valid link."}
 
-    if is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "flaredvns", "flarekkox"]):
-        return resolve_direct_stream(clean)
-
-    if is_flare_link(clean):
+    # 1. Flare mode or Flare link format (flaredvns, flare*, hugebox, or numeric link ID)
+    if mode == "flare" or is_flare_link(clean):
         return resolve_flare_stream(clean)
 
+    # 2. Direct video stream (.mp4, .m3u8, .webm)
+    if mode == "direct" or (is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "flare", "hugebox", "cashsnap"])):
+        return resolve_direct_stream(clean)
+
+    # 3. TeraBox / 1024Tera / TeraShare links
     return resolve_terabox_stream(clean)
 
 
@@ -660,11 +675,14 @@ def play_surl(surl):
 @app.route('/api/resolve', methods=['GET', 'POST'])
 def api_resolve():
     raw_input = ""
+    mode = ""
     if request.method == 'POST':
         data = request.get_json(silent=True) or {}
         raw_input = data.get('url') or data.get('surl') or ""
+        mode = data.get('mode') or ""
     else:
         raw_input = request.args.get('url') or request.args.get('surl') or ""
+        mode = request.args.get('mode') or ""
 
     if not raw_input:
         return jsonify({"success": False, "error": "No link provided. Please paste a video link."}), 400
@@ -672,7 +690,7 @@ def api_resolve():
     user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
     user_agent = request.headers.get('User-Agent', 'Unknown')
 
-    stream_info = resolve_universal_stream(raw_input)
+    stream_info = resolve_universal_stream(raw_input, mode=mode)
 
     # Guaranteed logging for every search query (success or failed/expired)
     title_to_log = stream_info.get("title") if stream_info.get("success") else f"[Unresolved / Expired: {stream_info.get('error', 'Error')}]"
