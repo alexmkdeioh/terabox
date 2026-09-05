@@ -159,7 +159,7 @@
                         <span class="font-heading font-bold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-brand-400 bg-clip-text text-transparent">TeraStream</span>
                         <span class="text-[10px] font-bold uppercase tracking-wider bg-brand-500/20 text-brand-400 px-2 py-0.5 rounded-full border border-brand-500/30">Native Pro</span>
                     </div>
-                    <p class="text-[11px] text-slate-400 -mt-0.5">TeraBox • DiskWala • YouTube • Direct Stream & Downloader</p>
+                    <p class="text-[11px] text-slate-400 -mt-0.5">100% Ad-Free • Instant Playback & Downloader</p>
                 </div>
             </a>
 
@@ -190,10 +190,6 @@
                     <i data-lucide="zap" class="w-4 h-4 text-brand-300"></i>
                     <span>⚡ TeraBox</span>
                 </button>
-                <button type="button" id="tabDiskwala" onclick="switchSearchMode('diskwala')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
-                    <i data-lucide="hard-drive" class="w-4 h-4 text-purple-400"></i>
-                    <span>💾 DiskWala Stream & DL</span>
-                </button>
                 <button type="button" id="tabYoutube" onclick="switchSearchMode('youtube')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
                     <i data-lucide="youtube" class="w-4 h-4 text-rose-500"></i>
                     <span>▶️ YouTube Stream & DL</span>
@@ -201,6 +197,10 @@
                 <button type="button" id="tabFlare" onclick="switchSearchMode('flare')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
                     <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>
                     <span>🔥 Flare / CashSnap</span>
+                </button>
+                <button type="button" id="tabDiskwala" onclick="switchSearchMode('diskwala')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                    <i data-lucide="hard-drive" class="w-4 h-4 text-purple-400"></i>
+                    <span>💾 DiskWala</span>
                 </button>
                 <button type="button" id="tabDirect" onclick="switchSearchMode('direct')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
                     <i data-lucide="play-circle" class="w-4 h-4 text-emerald-400"></i>
@@ -218,13 +218,10 @@
                 <div id="heroBadges" class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
                     <span class="text-slate-500 font-medium">Supports:</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">youtube.com</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-300 font-mono font-medium">youtu.be / shorts</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-purple-400 font-mono font-medium">diskwala.com</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">terabox.app</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">1024tera.com</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">flaredvns / direct</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">teraboxshare.com</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-400 font-mono">& all others</span>
                 </div>
             </div>
@@ -337,37 +334,6 @@
                         mozallowfullscreen="true" 
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     ></iframe>
-                </div>
-
-                <!-- DiskWala Direct Action & Media Container -->
-                <div id="diskwalaPlayerContainer" class="hidden w-full aspect-video min-h-[360px] sm:min-h-[440px] bg-slate-950 relative flex items-center justify-center p-4 sm:p-6 overflow-hidden">
-                    <img id="dwBackdropImg" src="" class="absolute inset-0 w-full h-full object-cover blur-3xl opacity-25 pointer-events-none scale-110">
-                    <div class="relative z-10 max-w-lg w-full glass-panel border border-purple-500/40 rounded-2xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xl backdrop-blur-2xl">
-                        <div class="relative w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden mb-4 border border-purple-500/50 shadow-glow bg-black flex items-center justify-center">
-                            <img id="dwThumbImg" src="" class="w-full h-full object-cover" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1179/1179069.png'">
-                            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end justify-center pb-1">
-                                <span class="text-[10px] font-bold text-purple-300 font-mono" id="dwSizeBadge">HD Video</span>
-                            </div>
-                        </div>
-                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 mb-2">
-                            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-purple-400"></i>
-                            <span>DiskWala HD Cloud File</span>
-                        </span>
-                        <h3 id="dwTitleText" class="text-base sm:text-lg font-bold text-white mb-2 line-clamp-2">DiskWala Video</h3>
-                        <p class="text-xs text-slate-400 mb-5 leading-relaxed">
-                            File is verified and ready. Tap below to download high-speed direct file or launch in app.
-                        </p>
-                        <div class="flex flex-wrap items-center justify-center gap-3 w-full">
-                            <a id="dwDownloadBtn" href="#" target="_blank" class="flex-1 min-w-[170px] bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 px-5 rounded-xl shadow-glow transition flex items-center justify-center gap-2 text-xs sm:text-sm">
-                                <i data-lucide="download" class="w-4 h-4"></i>
-                                <span>Download HD Video</span>
-                            </a>
-                            <a id="dwAppBtn" href="#" target="_blank" class="bg-purple-600/30 hover:bg-purple-600 border border-purple-500/40 text-purple-200 hover:text-white font-semibold py-3 px-5 rounded-xl transition flex items-center justify-center gap-2 text-xs sm:text-sm">
-                                <i data-lucide="external-link" class="w-4 h-4"></i>
-                                <span>Open in App</span>
-                            </a>
-                        </div>
-                    </div>
                 </div>
             </div>
 
@@ -491,174 +457,7 @@
             </div>
             <div id="noHistoryMessage" class="text-center py-8 text-slate-500 text-sm">
                 <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-                No recently streamed videos yet. Paste any TeraBox or DiskWala link above to start!
-            </div>
-        </section>
-
-        <!-- Supported Services & Platform Architecture Section -->
-        <section id="supportedPlatformsSection" class="glass-panel rounded-2xl p-6 sm:p-8 border border-dark-border relative overflow-hidden">
-            <div class="absolute -left-24 -bottom-24 w-72 h-72 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
-            <div class="absolute -right-24 -top-24 w-72 h-72 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
-
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-dark-border/80">
-                <div>
-                    <div class="flex items-center gap-2 mb-1">
-                        <span class="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse"></span>
-                        <h2 class="font-heading font-bold text-xl sm:text-2xl text-white">Supported Cloud Platforms & Formats</h2>
-                    </div>
-                    <p class="text-xs sm:text-sm text-slate-400">All services feature zero ads, full hardware acceleration, multi-quality options, and bypass ISP restrictions.</p>
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-[11px] font-semibold bg-purple-950/60 text-purple-300 border border-purple-800/50 px-3 py-1 rounded-full flex items-center gap-1.5">
-                        <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-purple-400"></i>
-                        <span>DiskWala Engine Active</span>
-                    </span>
-                </div>
-            </div>
-
-            <!-- Service Cards Grid -->
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                
-                <!-- DiskWala Card -->
-                <div class="glass-panel p-5 rounded-2xl border border-purple-500/30 hover:border-purple-400/60 bg-gradient-to-b from-purple-950/20 to-transparent transition duration-200 flex flex-col justify-between group shadow-lg">
-                    <div>
-                        <div class="flex items-center justify-between gap-2 mb-3">
-                            <div class="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 group-hover:scale-105 transition">
-                                <i data-lucide="hard-drive" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full">New Support</span>
-                        </div>
-                        <h3 class="font-heading font-bold text-base text-white mb-1 flex items-center gap-1.5">
-                            <span>DiskWala Cloud Stream</span>
-                        </h3>
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                            Watch DiskWala shared videos directly in your browser without requiring the mobile app, with 1-click full-speed download.
-                        </p>
-                        <div class="flex flex-wrap gap-1.5 mb-4">
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-purple-300 px-2 py-0.5 rounded border border-dark-border">diskwala.com</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-purple-300 px-2 py-0.5 rounded border border-dark-border">thediskwala.com</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-purple-300 px-2 py-0.5 rounded border border-dark-border">playdiskwala.in</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-purple-300 px-2 py-0.5 rounded border border-dark-border">/s/ or /file/ IDs</span>
-                        </div>
-                    </div>
-                    <button onclick="switchSearchMode('diskwala'); window.scrollTo({top: 0, behavior: 'smooth'});" class="w-full bg-purple-600/30 hover:bg-purple-600 text-purple-200 hover:text-white py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-purple-500/40">
-                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
-                        <span>Use DiskWala Mode</span>
-                    </button>
-                </div>
-
-                <!-- TeraBox Card -->
-                <div class="glass-panel p-5 rounded-2xl border border-brand-500/30 hover:border-brand-400/60 bg-gradient-to-b from-brand-950/20 to-transparent transition duration-200 flex flex-col justify-between group shadow-lg">
-                    <div>
-                        <div class="flex items-center justify-between gap-2 mb-3">
-                            <div class="w-10 h-10 rounded-xl bg-brand-500/20 border border-brand-500/30 flex items-center justify-center text-brand-400 group-hover:scale-105 transition">
-                                <i data-lucide="zap" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider bg-brand-500/20 text-brand-300 border border-brand-500/30 px-2 py-0.5 rounded-full">High Speed HLS</span>
-                        </div>
-                        <h3 class="font-heading font-bold text-base text-white mb-1 flex items-center gap-1.5">
-                            <span>TeraBox & 1024Tera</span>
-                        </h3>
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                            Extract direct HLS master playlists, multi-video folder albums, and bypass ISP rate limits and Cloudflare blocking.
-                        </p>
-                        <div class="flex flex-wrap gap-1.5 mb-4">
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-brand-300 px-2 py-0.5 rounded border border-dark-border">terabox.app</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-brand-300 px-2 py-0.5 rounded border border-dark-border">teraboxlink</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-brand-300 px-2 py-0.5 rounded border border-dark-border">1024tera.com</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-brand-300 px-2 py-0.5 rounded border border-dark-border">terasharefile</span>
-                        </div>
-                    </div>
-                    <button onclick="switchSearchMode('terabox'); window.scrollTo({top: 0, behavior: 'smooth'});" class="w-full bg-brand-600/30 hover:bg-brand-600 text-brand-200 hover:text-white py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-brand-500/40">
-                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
-                        <span>Use TeraBox Mode</span>
-                    </button>
-                </div>
-
-                <!-- YouTube Stream & Downloader Card -->
-                <div class="glass-panel p-5 rounded-2xl border border-rose-500/30 hover:border-rose-400/60 bg-gradient-to-b from-rose-950/20 to-transparent transition duration-200 flex flex-col justify-between group shadow-lg">
-                    <div>
-                        <div class="flex items-center justify-between gap-2 mb-3">
-                            <div class="w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-400 group-hover:scale-105 transition">
-                                <i data-lucide="youtube" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30 px-2 py-0.5 rounded-full">1080p & MP3</span>
-                        </div>
-                        <h3 class="font-heading font-bold text-base text-white mb-1 flex items-center gap-1.5">
-                            <span>YouTube & Shorts</span>
-                        </h3>
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                            Watch YouTube videos & shorts with zero ads and buffer-free seek, plus download multi-quality 1080p, 720p MP4, or MP3 audio.
-                        </p>
-                        <div class="flex flex-wrap gap-1.5 mb-4">
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-rose-300 px-2 py-0.5 rounded border border-dark-border">youtube.com</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-rose-300 px-2 py-0.5 rounded border border-dark-border">youtu.be</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-rose-300 px-2 py-0.5 rounded border border-dark-border">shorts</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-rose-300 px-2 py-0.5 rounded border border-dark-border">MP3 Audio</span>
-                        </div>
-                    </div>
-                    <button onclick="switchSearchMode('youtube'); window.scrollTo({top: 0, behavior: 'smooth'});" class="w-full bg-rose-600/30 hover:bg-rose-600 text-rose-200 hover:text-white py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-rose-500/40">
-                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
-                        <span>Use YouTube Mode</span>
-                    </button>
-                </div>
-
-                <!-- Flare / CashSnap Card -->
-                <div class="glass-panel p-5 rounded-2xl border border-amber-500/30 hover:border-amber-400/60 bg-gradient-to-b from-amber-950/20 to-transparent transition duration-200 flex flex-col justify-between group shadow-lg">
-                    <div>
-                        <div class="flex items-center justify-between gap-2 mb-3">
-                            <div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400 group-hover:scale-105 transition">
-                                <i data-lucide="flame" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full">Encrypted Player</span>
-                        </div>
-                        <h3 class="font-heading font-bold text-base text-white mb-1 flex items-center gap-1.5">
-                            <span>Flare & CashSnap</span>
-                        </h3>
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                            Decrypt AES-CBC streams for Flaredvns, HugeBox, and CashSnap media files instantly with hardware-accelerated rendering.
-                        </p>
-                        <div class="flex flex-wrap gap-1.5 mb-4">
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-amber-300 px-2 py-0.5 rounded border border-dark-border">flaredvns.com</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-amber-300 px-2 py-0.5 rounded border border-dark-border">cashsnap</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-amber-300 px-2 py-0.5 rounded border border-dark-border">hugebox</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-amber-300 px-2 py-0.5 rounded border border-dark-border">Numeric IDs</span>
-                        </div>
-                    </div>
-                    <button onclick="switchSearchMode('flare'); window.scrollTo({top: 0, behavior: 'smooth'});" class="w-full bg-amber-600/30 hover:bg-amber-600 text-amber-200 hover:text-white py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-amber-500/40">
-                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
-                        <span>Use Flare Mode</span>
-                    </button>
-                </div>
-
-                <!-- Direct Video / HLS Stream Card -->
-                <div class="glass-panel p-5 rounded-2xl border border-emerald-500/30 hover:border-emerald-400/60 bg-gradient-to-b from-emerald-950/20 to-transparent transition duration-200 flex flex-col justify-between group shadow-lg">
-                    <div>
-                        <div class="flex items-center justify-between gap-2 mb-3">
-                            <div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 group-hover:scale-105 transition">
-                                <i data-lucide="play-circle" class="w-5 h-5"></i>
-                            </div>
-                            <span class="text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full">Universal Player</span>
-                        </div>
-                        <h3 class="font-heading font-bold text-base text-white mb-1 flex items-center gap-1.5">
-                            <span>Direct Video & M3U8</span>
-                        </h3>
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                            Play any live M3U8 stream, progressive MP4, WebM, or MKV URL with full Theater Mode, Seek hotkeys, and Cloud Proxy routing.
-                        </p>
-                        <div class="flex flex-wrap gap-1.5 mb-4">
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-emerald-300 px-2 py-0.5 rounded border border-dark-border">.m3u8 Streams</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-emerald-300 px-2 py-0.5 rounded border border-dark-border">.mp4 Files</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-emerald-300 px-2 py-0.5 rounded border border-dark-border">.webm / .mov</span>
-                            <span class="text-[10px] font-mono bg-dark-bg/80 text-emerald-300 px-2 py-0.5 rounded border border-dark-border">CORS Proxy</span>
-                        </div>
-                    </div>
-                    <button onclick="switchSearchMode('direct'); window.scrollTo({top: 0, behavior: 'smooth'});" class="w-full bg-emerald-600/30 hover:bg-emerald-600 text-emerald-200 hover:text-white py-2 px-3 rounded-xl text-xs font-semibold transition flex items-center justify-center gap-1.5 border border-emerald-500/40">
-                        <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
-                        <span>Use Direct Player</span>
-                    </button>
-                </div>
-
+                No recently streamed videos yet. Paste any TeraBox link above to start!
             </div>
         </section>
 
@@ -759,12 +558,11 @@
 
         // Initialize Plyr
         function initPlyr() {
-            const dlUrl = (currentData && currentData.download_url) ? currentData.download_url : (nativeVideo.src || '');
             if (!plyrPlayer) {
                 plyrPlayer = new Plyr(nativeVideo, {
                     controls: [
                         'play-large', 'play', 'progress', 'current-time', 'duration',
-                        'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'download', 'fullscreen'
+                        'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
                     ],
                     settings: ['speed', 'quality'],
                     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
@@ -772,19 +570,13 @@
                     toggleInvert: false,
                     displayDuration: true,
                     autoplay: true,
-                    keyboard: { focused: true, global: true },
-                    urls: {
-                        download: dlUrl
-                    }
+                    keyboard: { focused: true, global: true }
                 });
-            } else if (dlUrl) {
-                plyrPlayer.download = dlUrl;
             }
         }
 
         // Play Video Stream (HLS or Progressive MP4)
         function loadHlsStream(streamUrl, posterUrl, isHls = false) {
-            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.add('hidden');
             nativePlayerContainer.classList.remove('hidden');
             iframePlayerContainer.classList.add('hidden');
 
@@ -858,7 +650,6 @@
 
         // Fallback to Iframe Mirror
         function loadIframeMirror(embedUrl) {
-            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.add('hidden');
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
@@ -906,35 +697,6 @@
             showToast('Shareable Link copied!');
         });
 
-        const diskwalaPlayerContainer = document.getElementById('diskwalaPlayerContainer');
-        const dwBackdropImg = document.getElementById('dwBackdropImg');
-        const dwThumbImg = document.getElementById('dwThumbImg');
-        const dwSizeBadge = document.getElementById('dwSizeBadge');
-        const dwTitleText = document.getElementById('dwTitleText');
-        const dwDownloadBtn = document.getElementById('dwDownloadBtn');
-        const dwAppBtn = document.getElementById('dwAppBtn');
-
-        function showDiskwalaCard(data) {
-            if (hlsInstance) {
-                hlsInstance.destroy();
-                hlsInstance = null;
-            }
-            if (nativeVideo) {
-                nativeVideo.pause();
-            }
-            nativePlayerContainer.classList.add('hidden');
-            iframePlayerContainer.classList.add('hidden');
-            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.remove('hidden');
-
-            if (dwBackdropImg) dwBackdropImg.src = data.thumbnail || '';
-            if (dwThumbImg) dwThumbImg.src = data.thumbnail || 'https://cdn-icons-png.flaticon.com/512/1179/1179069.png';
-            if (dwSizeBadge) dwSizeBadge.textContent = data.size || 'HD Video';
-            if (dwTitleText) dwTitleText.textContent = data.title || 'DiskWala Video';
-            if (dwDownloadBtn) dwDownloadBtn.href = data.download_url || `https://www.diskwala.com/app/${data.surl}`;
-            if (dwAppBtn) dwAppBtn.href = `https://www.diskwala.com/app/${data.surl}`;
-            lucide.createIcons();
-        }
-
         // Render Multi-Quality Download Formats
         function renderDownloadFormats(formats) {
             const formatSection = document.getElementById('formatSection');
@@ -943,43 +705,20 @@
                 formatSection.classList.add('hidden');
                 return;
             }
-            formatGrid.innerHTML = formats.map(df => {
-                const dlUrl = df.download_url || df.url || '#';
-                const directUrl = df.direct_url || dlUrl;
-                const qualityName = df.quality || df.label || df.resolution || 'HD Video';
-                const sizeName = df.size || '';
-                const extName = (df.ext || 'MP4').toUpperCase();
-                const isAudio = qualityName.toLowerCase().includes('audio');
-                const isProg = df.is_progressive && !isAudio;
-
-                return `
-                <div class="glass-panel p-3.5 rounded-xl border ${isProg ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-dark-border'} hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-3 group">
+            formatGrid.innerHTML = formats.map(df => `
+                <a href="${df.download_url}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
                     <div class="flex items-center gap-2.5 min-w-0">
-                        <div class="w-9 h-9 rounded-lg ${isProg ? 'bg-emerald-500/20 text-emerald-400' : (isAudio ? 'bg-rose-500/20 text-rose-400' : 'bg-brand-500/20 text-brand-400')} flex items-center justify-center shrink-0">
-                            <i data-lucide="${isAudio ? 'music' : (isProg ? 'check-circle-2' : 'video')}" class="w-4 h-4"></i>
+                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
+                            <i data-lucide="${(df.quality && df.quality.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
                         </div>
                         <div class="min-w-0">
-                            <div class="flex items-center gap-1.5">
-                                <p class="text-xs font-bold text-white truncate">${qualityName}</p>
-                                ${isProg ? '<span class="text-[9px] bg-emerald-500/30 text-emerald-300 font-extrabold px-1.5 py-0.5 rounded">Video + Audio</span>' : ''}
-                            </div>
-                            <span class="text-[10px] text-slate-400 font-mono">${sizeName}${sizeName ? ' • ' : ''}${extName}</span>
+                            <p class="text-xs font-semibold text-white truncate">${df.quality}</p>
+                            <span class="text-[10px] text-slate-400 font-mono">${df.size} • ${(df.ext || 'MP4').toUpperCase()}</span>
                         </div>
                     </div>
-                    <div class="flex items-center gap-1.5 shrink-0">
-                        <a href="${dlUrl}" download class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1">
-                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                            <span>Save</span>
-                        </a>
-                        ${directUrl !== dlUrl ? `
-                        <a href="${directUrl}" target="_blank" title="Direct CDN Link" class="p-1.5 rounded-lg text-xs font-semibold bg-dark-cardAlt hover:bg-slate-700 text-slate-300 border border-dark-border transition">
-                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                        </a>
-                        ` : ''}
-                    </div>
-                </div>
-                `;
-            }).join('');
+                    <span class="text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">↓</span>
+                </a>
+            `).join('');
             formatSection.classList.remove('hidden');
             lucide.createIcons();
         }
@@ -1012,29 +751,12 @@
                 return;
             }
             noHistoryMessage.classList.add('hidden');
-            historyList.innerHTML = list.map(item => {
-                let badgeClass = 'text-brand-400 bg-brand-500/10 border-brand-500/20';
-                let badgeLabel = '⚡ TeraBox';
-                if (item.mode === 'diskwala') {
-                    badgeClass = 'text-purple-400 bg-purple-500/10 border-purple-500/20';
-                    badgeLabel = '💾 DiskWala';
-                } else if (item.mode === 'youtube') {
-                    badgeClass = 'text-rose-400 bg-rose-500/10 border-rose-500/20';
-                    badgeLabel = '▶️ YouTube';
-                } else if (item.mode === 'flare') {
-                    badgeClass = 'text-amber-400 bg-amber-500/10 border-amber-500/20';
-                    badgeLabel = '🔥 Flare';
-                } else if (item.mode === 'direct') {
-                    badgeClass = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
-                    badgeLabel = '🎬 Direct';
-                }
-
-                return `
+            historyList.innerHTML = list.map(item => `
                 <div class="glass-panel p-3.5 rounded-xl border border-dark-border hover:border-brand-500/40 transition group flex flex-col justify-between gap-3">
                     <div>
                         <div class="flex items-center justify-between gap-2 mb-1.5">
-                            <span class="text-[11px] font-bold ${badgeClass} px-2 py-0.5 rounded border">
-                                ${badgeLabel}
+                            <span class="text-[11px] font-bold ${item.mode === 'youtube' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : 'text-brand-400 bg-brand-500/10 border-brand-500/20'} px-2 py-0.5 rounded border">
+                                ${item.mode === 'youtube' ? '▶️ YouTube' : '⚡ Video'}
                             </span>
                             <span class="text-[10px] text-slate-400">${item.size || 'HD'}</span>
                         </div>
@@ -1050,8 +772,7 @@
                         </button>
                     </div>
                 </div>
-            `;
-            }).join('');
+            `).join('');
             lucide.createIcons();
         }
 
@@ -1116,23 +837,6 @@
                 icon: 'link-2',
                 iconColor: 'text-brand-400'
             },
-            diskwala: {
-                title: 'DiskWala <span class="bg-gradient-to-r from-purple-400 via-fuchsia-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>',
-                subtitle: 'Stream DiskWala video links directly in HD with zero wait time, bypass mobile app requirement, and download at maximum speed.',
-                badges: `
-                    <span class="text-slate-500 font-medium">Supports:</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-purple-400 font-mono font-medium">diskwala.com/s/...</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-fuchsia-400 font-mono font-medium">diskwala.com/file/...</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">thediskwala.com</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-violet-400 font-mono font-medium">playdiskwala.in</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">All DiskWala Domains</span>
-                `,
-                placeholder: 'Paste DiskWala link (e.g. diskwala.com/s/..., diskwala.com/file/..., thediskwala.com/...)',
-                hint: '💾 Tip: You can paste any DiskWala share URL, file link, or code to stream immediately without installing any app.',
-                btnText: 'Stream & Download',
-                icon: 'hard-drive',
-                iconColor: 'text-purple-400'
-            },
             youtube: {
                 title: 'YouTube <span class="bg-gradient-to-r from-rose-500 via-red-500 to-amber-400 bg-clip-text text-transparent">Stream & Multi-Quality Downloader</span>',
                 subtitle: 'Stream YouTube videos & shorts ad-free with zero buffering, and download 1080p Full HD, 720p, 480p, or high-bitrate MP3 audio.',
@@ -1166,6 +870,24 @@
                 icon: 'flame',
                 iconColor: 'text-amber-400'
             },
+            diskwala: {
+                title: 'DiskWala <span class="bg-gradient-to-r from-purple-400 via-pink-400 to-rose-400 bg-clip-text text-transparent">Stream & Video Downloader</span>',
+                subtitle: 'Stream DiskWala shared videos instantly in full HD, bypass Cloudflare bot challenges using client browser acceleration, and download directly.',
+                badges: `
+                    <span class="text-slate-500 font-medium">Supports:</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-purple-400 font-mono font-medium">diskwala.com/watch</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-pink-400 font-mono font-medium">diskwala.net</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">disk.wlc.pw</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">diskwala.org</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">HLS & MP4</span>
+                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">Cloudflare Safe</span>
+                `,
+                placeholder: 'Paste DiskWala link (e.g. diskwala.com/watch/... or diskwala.net/...)',
+                hint: '💾 Tip: Client-side browser resolver automatically handles Cloudflare verification for instant playback.',
+                btnText: 'Stream DiskWala',
+                icon: 'hard-drive',
+                iconColor: 'text-purple-400'
+            },
             direct: {
                 title: 'Direct Video & <span class="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">M3U8 HLS Player</span>',
                 subtitle: 'Paste any direct MP4, M3U8, WebM, or HLS livestream URL for instant ad-free playback in HD theater mode.',
@@ -1192,9 +914,9 @@
             // Update Tab Styles
             const tabs = {
                 terabox: document.getElementById('tabTerabox'),
-                diskwala: document.getElementById('tabDiskwala'),
                 youtube: document.getElementById('tabYoutube'),
                 flare: document.getElementById('tabFlare'),
+                diskwala: document.getElementById('tabDiskwala'),
                 direct: document.getElementById('tabDirect')
             };
 
@@ -1203,12 +925,12 @@
                 if (k === mode) {
                     if (k === 'terabox') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow";
-                    } else if (k === 'diskwala') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-glow";
                     } else if (k === 'youtube') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-glow";
                     } else if (k === 'flare') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow";
+                    } else if (k === 'diskwala') {
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-glow";
                     } else {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow";
                     }
@@ -1235,6 +957,64 @@
             lucide.createIcons();
         };
 
+        // Client-Side Cloudflare Resolver for DiskWala
+        async function resolveDiskwalaClientSide(rawUrl) {
+            let target = rawUrl.trim();
+            if (!target.startsWith('http')) {
+                target = `https://${target}`;
+            }
+
+            const proxyGateways = [
+                target,
+                `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
+                `https://corsproxy.io/?${encodeURIComponent(target)}`
+            ];
+
+            let extractedStream = null;
+            let extractedTitle = null;
+            let extractedPoster = null;
+
+            for (const gw of proxyGateways) {
+                try {
+                    const resp = await fetch(gw, { cache: 'no-store' });
+                    if (resp.ok) {
+                        const text = await resp.text();
+                        if (text && (text.includes('.m3u8') || text.includes('.mp4') || text.includes('<video') || text.includes('sources:'))) {
+                            const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
+                            if (titleMatch) {
+                                extractedTitle = titleMatch[1].replace(/-\s*DiskWala/gi, '').replace(/DiskWala/gi, '').trim();
+                            }
+
+                            const m3u8Match = text.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/);
+                            if (m3u8Match) {
+                                extractedStream = m3u8Match[1];
+                            } else {
+                                const mp4Match = text.match(/["'](https?:\/\/[^"']+\.mp4[^"']*)["']/);
+                                if (mp4Match) {
+                                    extractedStream = mp4Match[1];
+                                }
+                            }
+
+                            const posterMatch = text.match(/poster=["'](https?:\/\/[^"']+)["']/);
+                            if (posterMatch) {
+                                extractedPoster = posterMatch[1];
+                            }
+
+                            if (extractedStream) break;
+                        }
+                    }
+                } catch (e) {
+                    // try next gateway
+                }
+            }
+
+            return {
+                stream_url: extractedStream,
+                title: extractedTitle,
+                thumbnail: extractedPoster
+            };
+        }
+
         // Form Submit Handler
         streamForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1257,6 +1037,38 @@
 
                 if (!res.ok || !data.success) {
                     throw new Error(data.error || 'Failed to resolve video stream');
+                }
+
+                // Handle client-side Cloudflare bypass for DiskWala
+                if (data.mode === 'diskwala' || activeMode === 'diskwala' || data.requires_client_resolve) {
+                    if (!data.stream_url) {
+                        try {
+                            const clientRes = await resolveDiskwalaClientSide(inputVal);
+                            if (clientRes.stream_url) {
+                                data.stream_url = clientRes.stream_url;
+                                if (clientRes.title) data.title = clientRes.title;
+                                if (clientRes.thumbnail) data.thumbnail = clientRes.thumbnail;
+                                data.is_hls = clientRes.stream_url.includes('.m3u8');
+                                data.download_url = clientRes.stream_url;
+
+                                // Sync resolved stream back to lifetime database
+                                fetch('/api/log_client', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        searched_url: inputVal,
+                                        surl: data.surl,
+                                        video_title: data.title,
+                                        video_size: data.size || 'DiskWala HD',
+                                        stream_url: data.stream_url,
+                                        download_url: data.download_url
+                                    })
+                                }).catch(() => {});
+                            }
+                        } catch (clientErr) {
+                            console.log('Client-side resolve notice:', clientErr);
+                        }
+                    }
                 }
 
                 currentData = data;
@@ -1301,13 +1113,7 @@
                 // Load Video Stream
                 playerSection.classList.remove('hidden');
 
-                if (data.mode === 'diskwala') {
-                    if (data.stream_url) {
-                        loadHlsStream(data.stream_url, data.thumbnail, false);
-                    } else {
-                        showDiskwalaCard(data);
-                    }
-                } else if (data.stream_url) {
+                if (data.stream_url) {
                     loadHlsStream(data.stream_url, data.thumbnail, data.is_hls);
                 } else if (data.embed_url) {
                     loadIframeMirror(data.embed_url);
@@ -1319,12 +1125,12 @@
                     surl: data.surl,
                     title: data.title,
                     size: data.size,
-                    mode: data.mode || (inputVal.includes('diskwala') ? 'diskwala' : (inputVal.includes('youtu') ? 'youtube' : (inputVal.includes('flare') ? 'flare' : 'terabox'))),
+                    mode: data.mode || (inputVal.includes('youtu') ? 'youtube' : (inputVal.includes('diskwala') ? 'diskwala' : 'terabox')),
                     originalUrl: inputVal,
                     timestamp: Date.now()
                 });
 
-                showToast(data.mode === 'diskwala' ? 'DiskWala video ready!' : 'Video ready for streaming!');
+                showToast('Video ready for streaming!');
                 playerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             } catch (err) {
@@ -1337,27 +1143,10 @@
             }
         });
 
-        function autoDetectMode(val) {
-            if (!val) return;
-            const clean = val.toLowerCase();
-            if (clean.includes('youtube.com') || clean.includes('youtu.be') || clean.includes('youtube-nocookie.com')) {
-                if (activeMode !== 'youtube') switchSearchMode('youtube');
-            } else if (clean.includes('diskwala') || clean.includes('thediskwala') || clean.includes('playdiskwala')) {
-                if (activeMode !== 'diskwala') switchSearchMode('diskwala');
-            } else if (clean.includes('flare') || clean.includes('flaredvns') || clean.includes('cashsnap') || clean.includes('hugebox') || clean.includes('blinknote')) {
-                if (activeMode !== 'flare') switchSearchMode('flare');
-            } else if (clean.includes('.m3u8') || clean.includes('.mp4') || clean.includes('.webm') || clean.includes('.mkv') || clean.includes('googlevideo.com') || clean.includes('videoplayback')) {
-                if (activeMode !== 'direct') switchSearchMode('direct');
-            } else if (clean.includes('terabox') || clean.includes('1024tera') || clean.includes('terashare') || clean.includes('nephobox') || clean.includes('4funbox')) {
-                if (activeMode !== 'terabox') switchSearchMode('terabox');
-            }
-        }
-
         // Setup input helpers
         urlInput.addEventListener('input', () => {
             clearBtn.classList.toggle('hidden', !urlInput.value);
             errorBox.classList.add('hidden');
-            autoDetectMode(urlInput.value);
         });
 
         clearBtn.addEventListener('click', () => {
@@ -1372,7 +1161,6 @@
                 if (text) {
                     urlInput.value = text.replace(/\s+/g, '');
                     clearBtn.classList.remove('hidden');
-                    autoDetectMode(urlInput.value);
                     urlInput.focus();
                 }
             } catch (e) {
@@ -1385,16 +1173,12 @@
         if (currentData && currentData.download_formats) {
             renderDownloadFormats(currentData.download_formats);
         }
-        if (currentData) {
-            if (currentData.mode === 'diskwala') {
-                showDiskwalaCard(currentData);
-            } else if (currentData.stream_url) {
-                loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
-            } else if (currentData.embed_url) {
-                loadIframeMirror(currentData.embed_url);
-            } else if (currentData.surl) {
-                loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
-            }
+        if (currentData && currentData.stream_url) {
+            loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
+        } else if (currentData && currentData.embed_url) {
+            loadIframeMirror(currentData.embed_url);
+        } else if (currentData && currentData.surl) {
+            loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
         }
     </script>
 </body>

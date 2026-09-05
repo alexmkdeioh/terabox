@@ -1,6 +1,4 @@
 import os
-import sys
-import shutil
 import re
 import csv
 import io
@@ -9,7 +7,6 @@ import time
 import base64
 import sqlite3
 import requests
-import subprocess
 from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
 
@@ -460,158 +457,33 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
     return result
 
 
-# ----------------- DISKWALA RESOLVER ENGINE -----------------
-
-def extract_diskwala_id(raw_input: str) -> str:
-    """Extracts 24-character hex ID from DiskWala URLs or raw input."""
-    if not raw_input:
-        return ""
-    clean = raw_input.strip()
-
-    # 1. URL pattern /app/<id>, /d/<id>, /file/<id>, /view/<id>, /play/<id>, /s/<id>
-    m1 = re.search(r'diskwala\.com/(?:app|d|file|view|play|watch|s|creator)/([a-fA-F0-9]{24})', clean, re.IGNORECASE)
-    if m1:
-        return m1.group(1)
-
-    # 2. Query param ?id=... or ?v=...
-    m2 = re.search(r'[?&#](?:id|v|file_id)=([a-fA-F0-9]{24})', clean, re.IGNORECASE)
-    if m2:
-        return m2.group(1)
-
-    # 3. DiskWala domain with hex ID
-    if "diskwala" in clean.lower():
-        m3 = re.search(r'([a-fA-F0-9]{24})', clean)
-        if m3:
-            return m3.group(1)
-
-    # 4. Pure 24-char hex string
-    if re.fullmatch(r'[a-fA-F0-9]{24}', clean):
-        return clean
-
-    return ""
-
-
-def is_diskwala_link(raw_input: str) -> bool:
-    """Detects if input is a DiskWala link or 24-hex ID."""
-    if not raw_input:
-        return False
-    if "diskwala" in raw_input.lower():
-        return bool(extract_diskwala_id(raw_input))
-    return bool(re.fullmatch(r'[a-fA-F0-9]{24}', raw_input.strip()))
-
-
-_BROWSER_READY = False
-
-def ensure_browser():
-    global _BROWSER_READY
-    if _BROWSER_READY or sys.platform == 'win32':
-        return
-    try:
-        home = os.path.expanduser('~')
-        search_dirs = [
-            os.path.join(home, '.cache', 'ms-playwright'),
-            os.path.join(home, '.cache', 'puppeteer'),
-            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser'),
-            '/opt/render/project/src/browser'
-        ]
-        for d in search_dirs:
-            if os.path.exists(d):
-                for root, _, files in os.walk(d):
-                    for f in files:
-                        if f in ['chrome', 'chromium']:
-                            _BROWSER_READY = True
-                            return
-        # Download standalone Chromium if missing
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], timeout=120)
-        _BROWSER_READY = True
-    except Exception as e:
-        print("[INIT] Browser setup error:", e)
-
-
-def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves video streams, file metadata, and download links exclusively via diskwala.net engine."""
-    clean_id = extract_diskwala_id(raw_url_or_id)
-    if not clean_id:
-        return {"success": False, "error": "Please enter a valid DiskWala link or 24-character Link ID."}
-
-    now = time.time()
-    cache_key = f"diskwala_{clean_id}"
-    if cache_key in RESOLVE_CACHE:
-        cached_time, cached_res = RESOLVE_CACHE[cache_key]
-        if (now - cached_time < 1200) and cached_res.get("stream_url"):
-            return cached_res
-
-    ensure_browser()
-
-    # Primary & Exclusive Engine: diskwala.net via diskwala_engine.js
-    engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
-    node_bin = shutil.which('node') or shutil.which('nodejs') or 'node'
-    if os.path.exists(engine_path):
-        try:
-            cmd = [node_bin, engine_path, clean_id]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
-            if res.returncode == 0 and res.stdout.strip():
-                lines = res.stdout.strip().splitlines()
-                for line in reversed(lines):
-                    try:
-                        data = json.loads(line)
-                        if data.get("success") and data.get("stream_url"):
-                            RESOLVE_CACHE[cache_key] = (now, data)
-                            return data
-                    except Exception:
-                        continue
-        except Exception as e:
-            print("Diskwala.net engine error:", e)
-
-    return {
-        "success": False,
-        "error": "Failed to extract DiskWala video stream. Please verify the link and try again."
-    }
-
-
 def is_direct_stream(raw_input: str) -> bool:
-    """Detects if input is a direct video (.mp4, .m3u8, .webm, googlevideo, videoplayback) URL."""
+    """Detects if input is a direct video (.mp4, .m3u8, .webm) URL."""
     if not raw_input:
         return False
     clean = raw_input.strip().lower()
-    return clean.startswith("http") and any(ext in clean for ext in [".m3u8", ".mp4", ".webm", ".mkv", ".mov", "googlevideo.com", "videoplayback"])
+    return clean.startswith("http") and any(ext in clean for ext in [".m3u8", ".mp4", ".webm", ".mkv", ".mov"])
 
 
 def resolve_direct_stream(raw_input: str) -> dict:
-    """Prepares direct streaming player payload and 1-click download for MP4 / M3U8 / GoogleVideo links."""
+    """Prepares direct streaming player payload for MP4 / M3U8 links."""
     clean = raw_input.strip()
     is_hls = ".m3u8" in clean.lower()
     parsed_path = urlparse(clean).path
-    filename = os.path.basename(parsed_path) or "Video_Stream.mp4"
-    if "videoplayback" in clean.lower() or "googlevideo" in clean.lower():
-        filename = "GoogleVideo_Stream.mp4"
-
-    dl_url = f"/api/direct/download?url={quote(clean, safe='')}&filename={quote(filename)}"
+    filename = os.path.basename(parsed_path) or "Direct Stream Video"
 
     return {
         "success": True,
         "surl": "direct",
         "full_surl": "direct",
-        "title": f"Direct Stream: {filename}",
-        "size": "Direct Stream File",
+        "title": f"Direct: {filename}",
+        "size": "Direct Stream",
         "size_bytes": 0,
         "duration_str": "HD Quality",
         "thumbnail": None,
         "stream_url": clean,
-        "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else f"/api/direct/download?url={quote(clean, safe='')}&stream=1",
-        "download_url": dl_url,
-        "download_formats": [
-            {
-                "label": "⚡ Direct 1-Click File Download (MP4)",
-                "quality": "Direct HD",
-                "format_id": "direct_mp4",
-                "ext": "mp4",
-                "size": "Direct File",
-                "download_url": dl_url,
-                "direct_url": clean,
-                "is_progressive": True
-            }
-        ],
+        "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
+        "download_url": clean if not is_hls else None,
         "is_hls": is_hls,
         "mode": "direct",
         "playlist": [{
@@ -621,7 +493,7 @@ def resolve_direct_stream(raw_input: str) -> dict:
             "thumbnail": None,
             "stream_url": clean,
             "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
-            "download_url": dl_url
+            "download_url": clean if not is_hls else None
         }]
     }
 
@@ -675,312 +547,370 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         if now - cached_time < 1200:  # 20 minutes cache
             return cached_res
 
-def resolve_youtube_stream(raw_url_or_id: str) -> dict:
-    """Resolves YouTube video streams, metadata, and multi-quality download options via Clipto API with yt-dlp fallback."""
-    video_id = extract_youtube_id(raw_url_or_id)
-    target_url = f"https://www.youtube.com/watch?v={video_id}" if video_id else raw_url_or_id.strip()
-
-    now = time.time()
-    cache_key = f"yt_{video_id or target_url}"
-    if cache_key in RESOLVE_CACHE:
-        cached_time, cached_res = RESOLVE_CACHE[cache_key]
-        if now - cached_time < 1200:  # 20 minutes cache
-            return cached_res
+    if not HAS_YTDLP:
+        return {
+            "success": False,
+            "error": "YouTube extraction engine (yt-dlp) is not installed on the server.",
+            "mode": "youtube"
+        }
 
     vid = video_id or "youtube"
+    title = f"YouTube Video {vid}"
+    duration_str = "HD Video"
+    uploader = "YouTube"
+    views_str = ""
+    thumbnail = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid != "youtube" else None
+    formats = []
 
-    # 1. Primary High-Speed Engine: Clipto API (https://www.clipto.com/media-tool/youtube-mp4)
+    # 1. Extract progressive format (format 18) via android client
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-            'Referer': 'https://www.clipto.com/media-tool/youtube-mp4',
-            'Origin': 'https://www.clipto.com',
-            'Content-Type': 'application/json'
+        ydl_opts_prog = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android']}}
         }
-        r_clipto = requests.post(
-            'https://www.clipto.com/api/youtube',
-            json={'url': target_url},
-            headers=headers,
-            timeout=10
-        )
-        if r_clipto.status_code == 200:
-            cdata = r_clipto.json()
-            if cdata.get('success') and cdata.get('medias'):
-                title = cdata.get('title') or f"YouTube Video {vid}"
-                duration_secs = cdata.get('duration') or 0
+        with yt_dlp.YoutubeDL(ydl_opts_prog) as ydl_prog:
+            info = ydl_prog.extract_info(target_url, download=False)
+            if info:
+                vid = info.get('id') or vid
+                title = info.get('title') or title
+                duration_secs = info.get('duration') or 0
                 if duration_secs >= 3600:
                     duration_str = f"{int(duration_secs // 3600):02d}:{int((duration_secs % 3600) // 60):02d}:{int(duration_secs % 60):02d}"
                 elif duration_secs > 0:
                     duration_str = f"{int(duration_secs // 60):02d}:{int(duration_secs % 60):02d}"
-                else:
-                    duration_str = "HD Video"
+                uploader = info.get('uploader') or info.get('channel') or uploader
+                views = info.get('view_count')
+                if views:
+                    views_str = f"{views:,} views"
+                thumbnail = info.get('thumbnail') or thumbnail
+                formats.extend(info.get('formats', []))
+    except Exception as e:
+        print("Android extraction notice:", e)
 
-                thumbnail = cdata.get('thumbnail') or f"https://i.ytimg.com/vi/{vid}/maxresdefault.jpg"
-                medias = cdata.get('medias') or []
+    # 2. Extract HD and Audio formats via android_creator
+    try:
+        ydl_opts_hd = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android_creator']}}
+        }
+        with yt_dlp.YoutubeDL(ydl_opts_hd) as ydl_hd:
+            info_hd = ydl_hd.extract_info(target_url, download=False)
+            if info_hd and info_hd.get('formats'):
+                formats.extend(info_hd['formats'])
+                if title == f"YouTube Video {vid}" and info_hd.get('title'):
+                    title = info_hd['title']
+    except Exception as e:
+        print("Android creator extraction notice:", e)
 
-                # Find best progressive MP4 (format 18 or progressive mp4)
-                prog_media = None
-                for m in medias:
-                    if m.get('type') == 'video' and m.get('ext') == 'mp4' and str(m.get('formatId')) == '18':
-                        prog_media = m
-                        break
-                if not prog_media:
-                    for m in medias:
-                        if m.get('type') == 'video' and m.get('ext') == 'mp4' and m.get('url'):
-                            prog_media = m
-                            break
+    try:
+        if not formats and not thumbnail:
+            raise Exception("No formats or metadata retrieved from YouTube")
 
-                stream_url = prog_media['url'] if prog_media else None
-                proxy_stream_url = f"/api/youtube/stream?v={vid}&itag={prog_media.get('formatId', '18')}" if prog_media else None
+            # 1. Progressive formats (both video and audio)
+            prog_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
+            best_prog = None
+            if prog_formats:
+                best_prog = sorted(prog_formats, key=lambda x: (x.get('height') or 0, x.get('tbr') or 0), reverse=True)[0]
 
-                download_formats = []
-                seen_fids = set()
+            stream_url = best_prog['url'] if best_prog else None
+            proxy_stream_url = f"/api/youtube/stream?v={vid}&itag={best_prog.get('format_id', '')}" if best_prog else None
 
-                # 1. Put progressive format first (Format 18 - 360p MP4 with Video + Audio)
-                if prog_media:
-                    fid = str(prog_media.get('formatId', '18'))
-                    seen_fids.add(fid)
-                    u = prog_media.get('url')
-                    RESOLVE_CACHE[f"yt_direct_{vid}_{fid}"] = (now, u)
-                    download_formats.append({
-                        "label": f"⚡ Fast MP4 (Video + Audio) - 360p",
-                        "quality": "360p MP4 (Video + Audio)",
-                        "format_id": fid,
-                        "ext": "mp4",
-                        "size": "Complete Video + Audio",
-                        "download_url": f"/api/youtube/download?v={vid}&itag={fid}&title={quote(title)}",
-                        "direct_url": u,
-                        "is_progressive": True
-                    })
+            # 2. Build multi-quality download options
+            download_formats = []
+            seen_resolutions = set()
 
-                # 2. Add high quality video and audio formats
-                for m in medias:
-                    fid = str(m.get('formatId') or '')
-                    if not fid or fid in seen_fids:
-                        continue
-                    seen_fids.add(fid)
+            # Progressive MP4
+            if best_prog:
+                h = best_prog.get('height') or '360'
+                size_bytes = best_prog.get('filesize') or best_prog.get('filesize_approx') or 0
+                size_label = f"{size_bytes / (1024*1024):.1f} MB" if size_bytes else "HD"
+                download_formats.append({
+                    "label": f"⚡ {h}p Fast MP4 (Video + Audio)",
+                    "quality": f"{h}p MP4",
+                    "format_id": best_prog.get('format_id'),
+                    "ext": best_prog.get('ext', 'mp4'),
+                    "size": size_label,
+                    "download_url": f"/api/youtube/download?v={vid}&itag={best_prog.get('format_id')}&title={quote(title)}",
+                    "is_progressive": True
+                })
+                seen_resolutions.add(f"{h}p")
 
-                    q = m.get('quality') or m.get('label') or ''
-                    m_type = m.get('type') or 'video'
-                    ext = m.get('ext') or ('mp4' if m_type == 'video' else 'm4a')
-                    u = m.get('url')
-                    if not u:
-                        continue
+            # HD Video formats (1080p, 720p, 480p, 360p, etc.)
+            video_only_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('url')]
+            sorted_video = sorted(video_only_formats, key=lambda x: (x.get('height') or 0, x.get('tbr') or 0), reverse=True)
 
-                    is_audio = (m_type == 'audio')
-                    is_prog = (fid == '18')
+            for f in sorted_video:
+                h = f.get('height')
+                if not h:
+                    continue
+                res_key = f"{h}p"
+                if res_key in seen_resolutions:
+                    continue
+                seen_resolutions.add(res_key)
+                size_bytes = f.get('filesize') or f.get('filesize_approx') or 0
+                size_label = f"{size_bytes / (1024*1024):.1f} MB" if size_bytes else "HD"
+                ext = f.get('ext', 'mp4')
+                download_formats.append({
+                    "label": f"📺 {res_key} HD Video ({ext.upper()})",
+                    "quality": f"{res_key}",
+                    "format_id": f.get('format_id'),
+                    "ext": ext,
+                    "size": size_label,
+                    "download_url": f"/api/youtube/download?v={vid}&itag={f.get('format_id')}&title={quote(title)}",
+                    "is_progressive": f.get('acodec') != 'none'
+                })
 
-                    RESOLVE_CACHE[f"yt_direct_{vid}_{fid}"] = (now, u)
+            # Audio formats (M4A / MP3)
+            audio_formats = [f for f in formats if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('url')]
+            if audio_formats:
+                best_audio = sorted(audio_formats, key=lambda x: (x.get('abr') or x.get('tbr') or 0), reverse=True)[0]
+                size_bytes = best_audio.get('filesize') or best_audio.get('filesize_approx') or 0
+                size_label = f"{size_bytes / (1024*1024):.1f} MB" if size_bytes else "Audio"
+                download_formats.append({
+                    "label": f"🎵 High Quality Audio (M4A / MP3)",
+                    "quality": "Audio MP3/M4A",
+                    "format_id": best_audio.get('format_id'),
+                    "ext": best_audio.get('ext', 'm4a'),
+                    "size": size_label,
+                    "download_url": f"/api/youtube/download?v={vid}&itag={best_audio.get('format_id')}&title={quote(title)}",
+                    "is_progressive": True
+                })
 
-                    if is_audio:
-                        label = f"🎵 Audio Only ({ext.upper()}) - {q}"
-                        size_note = "High Bitrate Audio"
-                    else:
-                        label = f"📺 HD Video ({ext.upper()}) - {q}"
-                        size_note = "HD Video Stream"
+            primary_dl = download_formats[0]["download_url"] if download_formats else (stream_url or f"https://www.youtube.com/watch?v={vid}")
 
-                    download_formats.append({
-                        "label": label,
-                        "quality": q,
-                        "format_id": fid,
-                        "ext": ext,
-                        "size": size_note,
-                        "download_url": f"/api/youtube/download?v={vid}&itag={fid}&title={quote(title)}",
-                        "direct_url": u,
-                        "is_progressive": is_prog or is_audio
-                    })
-
-                primary_dl = download_formats[0]["download_url"] if download_formats else (stream_url or f"https://www.youtube.com/watch?v={vid}")
-
-                result = {
-                    "success": True,
-                    "surl": vid,
-                    "full_surl": vid,
+            result = {
+                "success": True,
+                "surl": vid,
+                "full_surl": vid,
+                "title": title,
+                "channel": uploader,
+                "views": views_str,
+                "size": duration_str,
+                "size_bytes": 0,
+                "duration_str": duration_str,
+                "thumbnail": thumbnail,
+                "stream_url": stream_url,
+                "proxy_stream_url": proxy_stream_url,
+                "download_url": primary_dl,
+                "download_formats": download_formats,
+                "is_hls": False,
+                "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
+                "mode": "youtube",
+                "playlist": [{
+                    "index": 0,
                     "title": title,
-                    "channel": cdata.get('author') or "YouTube",
-                    "views": "",
                     "size": duration_str,
-                    "size_bytes": 0,
-                    "duration_str": duration_str,
                     "thumbnail": thumbnail,
                     "stream_url": stream_url,
                     "proxy_stream_url": proxy_stream_url,
-                    "download_url": primary_dl,
-                    "download_formats": download_formats,
-                    "is_hls": False,
-                    "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
-                    "mode": "youtube",
-                    "playlist": [{
-                        "index": 0,
-                        "title": title,
-                        "size": duration_str,
-                        "thumbnail": thumbnail,
-                        "stream_url": stream_url,
-                        "proxy_stream_url": proxy_stream_url,
-                        "download_url": primary_dl
-                    }]
-                }
-
-                RESOLVE_CACHE[cache_key] = (now, result)
-                return result
-    except Exception as e:
-        print("Clipto resolver notice:", e)
-
-    # 2. Secondary Engine: yt-dlp
-    if HAS_YTDLP:
-        try:
-            ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'skip_download': True,
-                'noplaylist': True,
-                'socket_timeout': 6,
-                'extractor_args': {'youtube': {'player_client': ['android', 'tv_embedded']}}
+                    "download_url": primary_dl
+                }]
             }
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(target_url, download=False)
-                if info and info.get('formats'):
-                    title = info.get('title') or f"YouTube Video {vid}"
-                    duration_secs = info.get('duration') or 0
-                    if duration_secs >= 3600:
-                        duration_str = f"{int(duration_secs // 3600):02d}:{int((duration_secs % 3600) // 60):02d}:{int(duration_secs % 60):02d}"
-                    elif duration_secs > 0:
-                        duration_str = f"{int(duration_secs // 60):02d}:{int(duration_secs % 60):02d}"
-                    else:
-                        duration_str = "HD Video"
-                    uploader = info.get('uploader') or info.get('channel') or "YouTube"
-                    thumbnail = info.get('thumbnail') or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
-                    formats = info.get('formats', [])
 
-                    prog_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
-                    best_prog = prog_formats[0] if prog_formats else None
-                    stream_url = best_prog['url'] if best_prog else None
-                    proxy_stream_url = f"/api/youtube/stream?v={vid}&itag={best_prog.get('format_id', '')}" if best_prog else None
+            RESOLVE_CACHE[cache_key] = (time.time(), result)
+            return result
 
-                    download_formats = []
-                    for f in formats:
-                        fid = str(f.get('format_id') or '')
-                        u = f.get('url')
-                        if u:
-                            RESOLVE_CACHE[f"yt_direct_{vid}_{fid}"] = (now, u)
-                            download_formats.append({
-                                "label": f"📺 HD Format ({f.get('ext', 'mp4').upper()}) - {f.get('format_id')}",
-                                "quality": f"{f.get('height', 'HD')}p",
-                                "format_id": fid,
-                                "ext": f.get('ext', 'mp4'),
-                                "size": "HD",
-                                "download_url": f"/api/youtube/download?v={vid}&itag={fid}&title={quote(title)}",
-                                "direct_url": u,
-                                "is_progressive": f.get('acodec') != 'none'
-                            })
+    except Exception as e:
+        print("YouTube extraction notice:", e)
+        # Ultra-reliable fallback via oEmbed + YouTube embed player
+        fallback_title = "YouTube Video"
+        fallback_thumb = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg" if video_id else None
+        try:
+            r_oembed = requests.get(f"https://www.youtube.com/oembed?url={quote(target_url)}&format=json", timeout=5)
+            if r_oembed.status_code == 200:
+                oe_data = r_oembed.json()
+                fallback_title = oe_data.get('title') or fallback_title
+                fallback_thumb = oe_data.get('thumbnail_url') or fallback_thumb
+        except Exception:
+            pass
 
-                    primary_dl = download_formats[0]["download_url"] if download_formats else (stream_url or f"https://www.youtube.com/watch?v={vid}")
-
-                    result = {
-                        "success": True,
-                        "surl": vid,
-                        "full_surl": vid,
-                        "title": title,
-                        "channel": uploader,
-                        "views": "",
-                        "size": duration_str,
-                        "size_bytes": 0,
-                        "duration_str": duration_str,
-                        "thumbnail": thumbnail,
-                        "stream_url": stream_url,
-                        "proxy_stream_url": proxy_stream_url,
-                        "download_url": primary_dl,
-                        "download_formats": download_formats,
-                        "is_hls": False,
-                        "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
-                        "mode": "youtube",
-                        "playlist": [{
-                            "index": 0,
-                            "title": title,
-                            "size": duration_str,
-                            "thumbnail": thumbnail,
-                            "stream_url": stream_url,
-                            "proxy_stream_url": proxy_stream_url,
-                            "download_url": primary_dl
-                        }]
-                    }
-                    RESOLVE_CACHE[cache_key] = (now, result)
-                    return result
-        except Exception as e:
-            print("yt-dlp fallback notice:", e)
-
-    # 3. Tertiary Fallback: oEmbed + Embed Player
-    fallback_title = f"YouTube Video {vid}"
-    fallback_thumb = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid != "youtube" else None
-    try:
-        r_oembed = requests.get(f"https://www.youtube.com/oembed?url={quote(target_url)}&format=json", timeout=5)
-        if r_oembed.status_code == 200:
-            oe_data = r_oembed.json()
-            fallback_title = oe_data.get('title') or fallback_title
-            fallback_thumb = oe_data.get('thumbnail_url') or fallback_thumb
-    except Exception:
-        pass
-
-    embed_result = {
-        "success": True,
-        "surl": vid,
-        "full_surl": vid,
-        "title": fallback_title,
-        "channel": "YouTube",
-        "views": "",
-        "size": "HD Stream",
-        "size_bytes": 0,
-        "duration_str": "HD Stream",
-        "thumbnail": fallback_thumb,
-        "stream_url": None,
-        "proxy_stream_url": None,
-        "download_url": f"https://www.youtube.com/watch?v={vid}",
-        "download_formats": [{
-            "label": "📺 Watch on YouTube / External Download",
-            "quality": "HD",
-            "format_id": "direct",
-            "ext": "mp4",
-            "size": "HD",
-            "download_url": f"https://www.youtube.com/watch?v={vid}",
-            "is_progressive": True
-        }],
-        "is_hls": False,
-        "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
-        "mode": "youtube",
-        "playlist": [{
-            "index": 0,
+        vid = video_id or "youtube"
+        embed_result = {
+            "success": True,
+            "surl": vid,
+            "full_surl": vid,
             "title": fallback_title,
-            "size": "HD Video",
+            "channel": "YouTube",
+            "views": "",
+            "size": "HD Stream",
+            "size_bytes": 0,
+            "duration_str": "HD Stream",
             "thumbnail": fallback_thumb,
             "stream_url": None,
             "proxy_stream_url": None,
-            "download_url": f"https://www.youtube.com/watch?v={vid}"
+            "download_url": f"https://www.youtube.com/watch?v={vid}",
+            "download_formats": [],
+            "is_hls": False,
+            "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
+            "mode": "youtube",
+            "playlist": [{
+                "index": 0,
+                "title": fallback_title,
+                "size": "HD Video",
+                "thumbnail": fallback_thumb,
+                "stream_url": None,
+                "proxy_stream_url": None,
+                "download_url": f"https://www.youtube.com/watch?v={vid}"
+            }]
+        }
+        RESOLVE_CACHE[cache_key] = (time.time(), embed_result)
+        return embed_result
+
+
+
+# ----------------- DISKWALA RESOLVER ENGINE -----------------
+
+def extract_diskwala_id(raw_input: str) -> str:
+    """Extracts the DiskWala file/watch code or ID from any DiskWala URL format."""
+    if not raw_input:
+        return ""
+    clean = raw_input.strip()
+
+    # 1. Path match (/watch/ID, /d/ID, /file/ID, /v/ID, /e/ID, /download/ID)
+    m = re.search(r'/(?:watch|d|file|v|e|download|embed)/([a-zA-Z0-9_-]{4,64})', clean, re.IGNORECASE)
+    if m:
+        return m.group(1)
+
+    # 2. Query param (?id=... or ?v=... or ?code=... or ?url=...)
+    m_q = re.search(r'[?&](?:id|v|code|file_id)=([a-zA-Z0-9_-]{4,64})', clean, re.IGNORECASE)
+    if m_q:
+        return m_q.group(1)
+
+    # 3. If domain is diskwala and last part is alphanumeric
+    if any(d in clean.lower() for d in ["diskwala", "disk.wlc.pw"]):
+        parts = clean.rstrip('/').split('?')[0].split('/')
+        if len(parts) >= 4 and re.match(r'^[a-zA-Z0-9_-]{4,64}$', parts[-1]):
+            return parts[-1]
+
+    return ""
+
+
+def is_diskwala_link(raw_input: str) -> bool:
+    """Detects if input is a DiskWala link."""
+    if not raw_input:
+        return False
+    clean = raw_input.lower().strip()
+    return any(k in clean for k in ["diskwala", "disk.wlc.pw", "diskwala.net", "diskwala.com", "diskwala.org"])
+
+
+def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
+    """Resolves DiskWala videos with server-side extraction and seamless client-side Cloudflare resolver fallback."""
+    clean = raw_url_or_id.strip()
+    disk_id = extract_diskwala_id(clean)
+
+    target_url = clean
+    if not target_url.startswith("http"):
+        target_url = f"https://diskwala.com/watch/{clean}" if disk_id else f"https://{clean}"
+
+    cache_key = f"diskwala_{disk_id or target_url}"
+    now = time.time()
+    if cache_key in RESOLVE_CACHE:
+        cached_time, cached_res = RESOLVE_CACHE[cache_key]
+        if now - cached_time < 1200:
+            return cached_res
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Referer': 'https://diskwala.com/'
+    }
+
+    title = f"DiskWala Video {disk_id}" if disk_id else "DiskWala Video"
+    stream_url = None
+    download_url = target_url
+    thumbnail = None
+
+    # 1. Attempt server-side fetch with stealth headers
+    try:
+        r = requests.get(target_url, headers=headers, timeout=5, allow_redirects=True)
+        if r.status_code == 200 and ("<video" in r.text or ".m3u8" in r.text or "file:" in r.text or "sources:" in r.text):
+            t_match = re.search(r'<title>([^<]+)</title>', r.text, re.IGNORECASE)
+            if t_match:
+                title = t_match.group(1).replace(" - DiskWala", "").replace("DiskWala", "").strip()
+
+            m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', r.text)
+            if m3u8_match:
+                stream_url = m3u8_match.group(1)
+            else:
+                mp4_match = re.search(r'["\'](https?://[^"\']+\.mp4[^"\']*)["\']', r.text)
+                if mp4_match:
+                    stream_url = mp4_match.group(1)
+
+            poster_match = re.search(r'poster=["\'](https?://[^"\']+)["\']', r.text)
+            if poster_match:
+                thumbnail = poster_match.group(1)
+    except Exception as e:
+        print("DiskWala server-side fetch note (Cloudflare / Network):", e)
+
+    embed_url = target_url
+    if "diskwala.com" in target_url and "/watch/" in target_url:
+        embed_url = target_url.replace("/watch/", "/embed/")
+    elif "diskwala.com" in target_url and "/d/" in target_url:
+        embed_url = target_url.replace("/d/", "/embed/")
+
+    result = {
+        "success": True,
+        "surl": disk_id or "diskwala",
+        "full_surl": disk_id or "diskwala",
+        "title": title or f"DiskWala Video {disk_id}",
+        "size": "DiskWala HD",
+        "size_bytes": 0,
+        "duration_str": "HD Stream",
+        "thumbnail": thumbnail,
+        "stream_url": stream_url,
+        "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
+        "download_url": stream_url or download_url,
+        "is_hls": bool(stream_url and ".m3u8" in stream_url),
+        "embed_url": embed_url,
+        "mode": "diskwala",
+        "requires_client_resolve": not bool(stream_url),
+        "target_url": target_url,
+        "playlist": [{
+            "index": 0,
+            "title": title or f"DiskWala Video {disk_id}",
+            "size": "DiskWala HD",
+            "thumbnail": thumbnail,
+            "stream_url": stream_url,
+            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
+            "download_url": stream_url or download_url
         }]
     }
-    RESOLVE_CACHE[cache_key] = (now, embed_result)
-    return embed_result
+
+    if stream_url:
+        RESOLVE_CACHE[cache_key] = (now, result)
+
+    return result
 
 
 def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
-    """Intelligently routes any input to DiskWala, YouTube, TeraBox, Flare/CashSnap, or Direct Video player."""
+    """Intelligently routes any input to YouTube, DiskWala, TeraBox, Flare/CashSnap, or Direct Video player."""
     clean = raw_input.strip()
     if not clean:
         return {"success": False, "error": "Please enter a valid link."}
 
-    # 1. DiskWala mode or DiskWala link format
-    if mode == "diskwala" or is_diskwala_link(clean):
-        return resolve_diskwala_stream(clean)
-
-    # 2. YouTube mode or YouTube link format
+    # 1. YouTube mode or YouTube link format
     if mode == "youtube" or is_youtube_link(clean):
         return resolve_youtube_stream(clean)
+
+    # 2. DiskWala mode or DiskWala link format
+    if mode == "diskwala" or is_diskwala_link(clean):
+        return resolve_diskwala_stream(clean)
 
     # 3. Flare mode or Flare link format (flaredvns, flare*, hugebox, or numeric link ID)
     if mode == "flare" or is_flare_link(clean):
         return resolve_flare_stream(clean)
 
     # 4. Direct video stream (.mp4, .m3u8, .webm)
-    if mode == "direct" or (is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "diskwala", "flare", "hugebox", "cashsnap", "youtube", "youtu.be"])):
+    if mode == "direct" or (is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "flare", "hugebox", "cashsnap", "youtube", "youtu.be", "diskwala"])):
         return resolve_direct_stream(clean)
 
     # 5. TeraBox / 1024Tera / TeraShare links
@@ -1105,7 +1035,7 @@ def index():
         title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
         log_search(
             searched_url=query_url,
-            surl=info.get("surl") or extract_youtube_id(query_url) or extract_diskwala_id(query_url) or extract_surl(query_url) or extract_flare_id(query_url),
+            surl=info.get("surl") or extract_youtube_id(query_url) or extract_surl(query_url) or extract_flare_id(query_url),
             video_title=title_to_log,
             video_size=info.get("size", "HD Video"),
             stream_url=info.get("stream_url", ""),
@@ -1134,10 +1064,8 @@ def play_surl(surl):
     title_to_log = info.get("title") if info.get("success") else f"[Unresolved / Expired: {info.get('error', 'Error')}]"
     
     searched_url = surl
-    if not is_flare_link(surl) and not is_youtube_link(surl) and not is_diskwala_link(surl):
+    if not is_flare_link(surl) and not is_youtube_link(surl):
         searched_url = f"https://teraboxshare.com/s/1{surl}"
-    elif is_diskwala_link(surl) and not surl.startswith("http"):
-        searched_url = f"https://diskwala.com/s/{surl}"
 
     log_search(
         searched_url=searched_url,
@@ -1180,7 +1108,7 @@ def api_resolve():
     title_to_log = stream_info.get("title") if stream_info.get("success") else f"[Unresolved / Expired: {stream_info.get('error', 'Error')}]"
     log_search(
         searched_url=raw_input,
-        surl=stream_info.get("surl") or extract_youtube_id(raw_input) or extract_diskwala_id(raw_input) or extract_surl(raw_input) or extract_flare_id(raw_input),
+        surl=stream_info.get("surl") or extract_youtube_id(raw_input) or extract_surl(raw_input) or extract_flare_id(raw_input),
         video_title=title_to_log,
         video_size=stream_info.get("size", "HD Video"),
         stream_url=stream_info.get("stream_url", ""),
@@ -1192,31 +1120,58 @@ def api_resolve():
     return jsonify(stream_info)
 
 
+@app.route('/api/log_client', methods=['POST'])
+def api_log_client():
+    """Logs or updates client-resolved streaming results (DiskWala / Cloudflare bypass) to the lifetime database."""
+    try:
+        data = request.get_json(silent=True) or {}
+        searched_url = data.get("searched_url") or ""
+        surl = data.get("surl") or ""
+        video_title = data.get("video_title") or "DiskWala Video"
+        video_size = data.get("video_size") or "HD Video"
+        stream_url = data.get("stream_url") or ""
+        download_url = data.get("download_url") or ""
+
+        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
+        user_agent = request.headers.get('User-Agent', 'Unknown')
+
+        log_search(
+            searched_url=searched_url,
+            surl=surl,
+            video_title=video_title,
+            video_size=video_size,
+            stream_url=stream_url,
+            download_url=download_url,
+            user_ip=user_ip,
+            user_agent=user_agent
+        )
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @app.route('/api/youtube/stream')
 def youtube_stream_proxy():
     """Proxies YouTube media stream chunks with Range header support for fast buffer & seeking."""
     video_id = request.args.get('v') or request.args.get('id')
-    itag = request.args.get('itag') or '18'
+    itag = request.args.get('itag')
     if not video_id:
         return Response("Missing video ID", status=400)
 
-    target_url = None
-    cache_key = f"yt_direct_{video_id}_{itag}"
+    # Resolve or use cached info
+    cache_key = f"yt_{video_id}"
+    resolved = None
     if cache_key in RESOLVE_CACHE:
-        _, target_url = RESOLVE_CACHE[cache_key]
-
-    if not target_url:
+        _, resolved = RESOLVE_CACHE[cache_key]
+    else:
         resolved = resolve_youtube_stream(video_id)
-        if resolved and resolved.get("success"):
-            for df in resolved.get("download_formats", []):
-                if str(df.get("format_id")) == str(itag):
-                    target_url = df.get("direct_url")
-                    break
-            if not target_url:
-                target_url = resolved.get("stream_url")
 
-    if not target_url:
+    if not resolved or not resolved.get("success"):
         return Response("Could not resolve video stream", status=404)
+
+    target_url = resolved.get("stream_url")
+    if not target_url:
+        return Response("No streamable format found", status=404)
 
     req_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
@@ -1249,34 +1204,60 @@ def youtube_stream_proxy():
 def youtube_download():
     """Directly streams video/audio file attachment with clean filename and maximum download speed."""
     video_id = request.args.get('v') or request.args.get('id')
-    itag = request.args.get('itag') or '18'
+    itag = request.args.get('itag')
     title = request.args.get('title') or f"YouTube_Video_{video_id}"
 
     if not video_id:
         return Response("Missing video ID", status=400)
 
+    # Sanitize title for filename
     clean_title = re.sub(r'[\\/*?:"<>|]', "", title).strip() or f"youtube_{video_id}"
 
     target_url = None
     ext = "mp4"
-    cache_key = f"yt_direct_{video_id}_{itag}"
-    if cache_key in RESOLVE_CACHE:
-        _, target_url = RESOLVE_CACHE[cache_key]
+    formats = []
+    try:
+        # Try android client first
+        with yt_dlp.YoutubeDL({
+            'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android']}}
+        }) as ydl_and:
+            info_and = ydl_and.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            if info_and and info_and.get('formats'):
+                formats.extend(info_and['formats'])
 
-    if not target_url:
-        resolved = resolve_youtube_stream(video_id)
-        if resolved and resolved.get("success"):
-            for df in resolved.get("download_formats", []):
-                if str(df.get("format_id")) == str(itag):
-                    target_url = df.get("direct_url")
-                    ext = df.get("ext", "mp4")
+        # If specific itag requested and not in android formats, try android_creator
+        if itag and not any(str(f.get('format_id')) == str(itag) for f in formats):
+            with yt_dlp.YoutubeDL({
+                'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
+                'format': None,
+                'extractor_args': {'youtube': {'player_client': ['android_creator']}}
+            }) as ydl_hd:
+                info_hd = ydl_hd.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                if info_hd and info_hd.get('formats'):
+                    formats.extend(info_hd['formats'])
+
+        matched_format = None
+        if itag:
+            for f in formats:
+                if str(f.get('format_id')) == str(itag):
+                    matched_format = f
                     break
-            if not target_url:
-                target_url = resolved.get("stream_url")
+        if not matched_format:
+            progs = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
+            matched_format = progs[0] if progs else (formats[-1] if formats else None)
+
+        if matched_format:
+            target_url = matched_format.get('url')
+            ext = matched_format.get('ext', 'mp4')
+    except Exception as e:
+        print("YouTube download extract error:", e)
 
     if not target_url:
-        return redirect(f"https://www.youtube.com/watch?v={video_id}")
+        return Response("Failed to resolve download URL", status=500)
 
+    # Stream the file directly as an attachment
     req_headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
     }
@@ -1296,49 +1277,6 @@ def youtube_download():
         return resp
     except Exception as e:
         return Response(f"Download stream error: {str(e)}", status=500)
-
-
-@app.route('/api/direct/download')
-def direct_download():
-    """Forces direct file attachment download with clean Content-Disposition header for any direct video URL."""
-    target_url = request.args.get('url')
-    filename = request.args.get('filename') or 'video.mp4'
-    is_stream = request.args.get('stream') == '1'
-    if not target_url:
-        return Response("Missing URL parameter", status=400)
-
-    clean_filename = re.sub(r'[\\/*?:"<>|]', "", filename).strip() or "video.mp4"
-    if not clean_filename.endswith(('.mp4', '.mkv', '.webm', '.m4a', '.mp3', '.mov')):
-        clean_filename += '.mp4'
-
-    req_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    }
-    if 'Range' in request.headers:
-        req_headers['Range'] = request.headers['Range']
-
-    try:
-        r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
-        def generate():
-            for chunk in r.iter_content(chunk_size=131072):
-                if chunk:
-                    yield chunk
-
-        content_type = r.headers.get('content-type', 'video/mp4')
-        resp = Response(generate(), status=r.status_code, content_type=content_type)
-        resp.headers['Access-Control-Allow-Origin'] = '*'
-        resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
-        if not is_stream:
-            resp.headers['Content-Disposition'] = f'attachment; filename="{clean_filename}"'
-        if 'Content-Length' in r.headers:
-            resp.headers['Content-Length'] = r.headers['Content-Length']
-        if 'Content-Range' in r.headers:
-            resp.headers['Content-Range'] = r.headers['Content-Range']
-        if 'Accept-Ranges' in r.headers:
-            resp.headers['Accept-Ranges'] = r.headers['Accept-Ranges']
-        return resp
-    except Exception as e:
-        return Response(f"Direct download stream error: {str(e)}", status=500)
 
 
 @app.route('/api/stream/proxy')
@@ -1562,52 +1500,8 @@ def admin_clear():
     return redirect(url_for('admin_dashboard'))
 
 
-@app.route('/api/diag')
-def api_diag():
-    clean_id = request.args.get('id', '69176413f37dbe35e7b299a5')
-    do_install = request.args.get('install')
-    install_log = None
-    if do_install:
-        try:
-            node_bin = shutil.which('node') or shutil.which('nodejs')
-            browser_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser")
-            cmd = ["npx", "-y", "@puppeteer/browsers", "install", "chrome@stable", "--path", browser_dir]
-            res_inst = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
-            install_log = {"stdout": res_inst.stdout, "stderr": res_inst.stderr, "code": res_inst.returncode}
-        except Exception as e:
-            install_log = {"error": str(e)}
-            
-    possible_dirs = [
-        os.path.expanduser('~/.cache/ms-playwright'),
-        os.path.expanduser('~/.cache/puppeteer'),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser'),
-        '/opt/render/project/src/browser'
-    ]
-    found_browsers = []
-    for d in possible_dirs:
-        if os.path.exists(d):
-            for root, dirs, files in os.walk(d):
-                for f in files:
-                    if f in ['chrome', 'chromium', 'chrome.exe']:
-                        found_browsers.append(os.path.join(root, f))
-                        
-    node_bin = shutil.which('node') or shutil.which('nodejs')
-    engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
-    engine_exists = os.path.exists(engine_path)
-    
-    resolve_test = resolve_diskwala_stream(clean_id) if not do_install else None
-    
-    return jsonify({
-        "platform": sys.platform,
-        "node": node_bin,
-        "install_log": install_log,
-        "found_browsers": found_browsers,
-        "engine_exists": engine_exists,
-        "resolve_result": resolve_test
-    })
-
-
 if __name__ == '__main__':
+    import sys
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     print("==================================================")
