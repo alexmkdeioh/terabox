@@ -6,9 +6,10 @@ services:
     container_name: terastream-pro
     restart: always
     ports:
-      - "80:8080"
+      - "80:7860"
+      - "8080:7860"
     environment:
-      - PORT=8080
+      - PORT=7860
       - SECRET_KEY=terastream_secure_session_key_2026
       - DISKWALA_API_KEY=6a9c2fc6ae1992e641218130
       - DATABASE_URL=postgresql://neondb_owner:npg_0JyzHhFLNGs1@ep-gentle-bonus-ae1k78jw-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require
