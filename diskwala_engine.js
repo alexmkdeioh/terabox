@@ -97,26 +97,8 @@ export async function resolveDiskwalaLink(linkId) {
     browser = spawn(browserPath, args, { stdio: 'ignore' });
   } catch (err) {
     return {
-      success: true,
-      surl: linkId,
-      full_surl: linkId,
-      title: `DiskWala Video (${linkId})`,
-      size: "HD Stream",
-      size_bytes: 0,
-      duration_str: "HD Video",
-      thumbnail: null,
-      stream_url: null,
-      download_url: `https://www.diskwala.com/app/${linkId}`,
-      is_hls: false,
-      mode: "diskwala",
-      playlist: [{
-        index: 0,
-        title: `DiskWala Video (${linkId})`,
-        size: "HD Video",
-        thumbnail: null,
-        stream_url: null,
-        download_url: `https://www.diskwala.com/app/${linkId}`
-      }]
+      success: false,
+      error: `Browser launch failed: ${err.message}`
     };
   }
 
@@ -146,7 +128,10 @@ export async function resolveDiskwalaLink(linkId) {
   if (!wsUrl) {
     if (browser) browser.kill();
     try { fs.rmSync(tempProfile, { recursive: true, force: true }); } catch (e) {}
-    throw new Error('Failed to connect to browser CDP');
+    return {
+      success: false,
+      error: 'Failed to connect to browser CDP'
+    };
   }
 
   return new Promise((resolve) => {
@@ -158,7 +143,7 @@ export async function resolveDiskwalaLink(linkId) {
     const timeoutTimer = setTimeout(() => {
       cleanup();
       buildResponse();
-    }, 25000);
+    }, 28000);
 
     function cleanup() {
       clearTimeout(timeoutTimer);
@@ -170,6 +155,14 @@ export async function resolveDiskwalaLink(linkId) {
     }
 
     function buildResponse() {
+      if (!fileInfo || !fileInfo.downloadUrl) {
+        resolve({
+          success: false,
+          error: "Stream URL could not be resolved from diskwala.net"
+        });
+        return;
+      }
+
       const name = fileInfo?.name ? cleanFilename(fileInfo.name, fileInfo.extension) : `DiskWala Video (${linkId})`;
       const rawBytes = fileInfo?.size || 0;
       const sizeStr = rawBytes > 0 ? `${(rawBytes / (1024 * 1024)).toFixed(2)} MB` : "HD Video";

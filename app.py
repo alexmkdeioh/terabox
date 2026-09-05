@@ -555,7 +555,7 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
                 for line in reversed(lines):
                     try:
                         data = json.loads(line)
-                        if data.get("success") and (data.get("stream_url") or data.get("download_url")):
+                        if data.get("success") and data.get("stream_url"):
                             RESOLVE_CACHE[cache_key] = (now, data)
                             return data
                     except Exception:
