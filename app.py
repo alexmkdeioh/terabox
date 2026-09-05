@@ -500,6 +500,34 @@ def is_diskwala_link(raw_input: str) -> bool:
     return bool(re.fullmatch(r'[a-fA-F0-9]{24}', raw_input.strip()))
 
 
+_BROWSER_READY = False
+
+def ensure_browser():
+    global _BROWSER_READY
+    if _BROWSER_READY or sys.platform == 'win32':
+        return
+    try:
+        home = os.path.expanduser('~')
+        search_dirs = [
+            os.path.join(home, '.cache', 'ms-playwright'),
+            os.path.join(home, '.cache', 'puppeteer'),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser'),
+            '/opt/render/project/src/browser'
+        ]
+        for d in search_dirs:
+            if os.path.exists(d):
+                for root, _, files in os.walk(d):
+                    for f in files:
+                        if f in ['chrome', 'chromium']:
+                            _BROWSER_READY = True
+                            return
+        # Download standalone Chromium if missing
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], timeout=120)
+        _BROWSER_READY = True
+    except Exception as e:
+        print("[INIT] Browser setup error:", e)
+
+
 def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
     """Resolves video streams, file metadata, and download links exclusively via diskwala.net engine."""
     clean_id = extract_diskwala_id(raw_url_or_id)
@@ -513,12 +541,15 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         if (now - cached_time < 1200) and cached_res.get("stream_url"):
             return cached_res
 
+    ensure_browser()
+
     # Primary & Exclusive Engine: diskwala.net via diskwala_engine.js
     engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
+    node_bin = shutil.which('node') or shutil.which('nodejs') or 'node'
     if os.path.exists(engine_path):
         try:
-            cmd = ["node", engine_path, clean_id]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            cmd = [node_bin, engine_path, clean_id]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
             if res.returncode == 0 and res.stdout.strip():
                 lines = res.stdout.strip().splitlines()
                 for line in reversed(lines):

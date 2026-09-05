@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, execSync } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,6 +45,15 @@ function findBrowser() {
   for (const d of searchDirs) {
     const found = findBinaryRecursive(d);
     if (found) return found;
+  }
+
+  // Auto-download standalone chrome on Linux if missing
+  if (process.platform === 'linux') {
+    try {
+      execSync('npx -y @puppeteer/browsers install chrome@stable --path ./browser', { stdio: 'inherit', timeout: 90000 });
+      const downloaded = findBinaryRecursive(path.join(process.cwd(), 'browser'));
+      if (downloaded) return downloaded;
+    } catch (e) {}
   }
 
   return process.platform === 'win32' ? 'chrome.exe' : 'chromium';
