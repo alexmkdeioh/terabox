@@ -666,32 +666,48 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
 
 
 def is_direct_stream(raw_input: str) -> bool:
-    """Detects if input is a direct video (.mp4, .m3u8, .webm) URL."""
+    """Detects if input is a direct video (.mp4, .m3u8, .webm, googlevideo, videoplayback) URL."""
     if not raw_input:
         return False
     clean = raw_input.strip().lower()
-    return clean.startswith("http") and any(ext in clean for ext in [".m3u8", ".mp4", ".webm", ".mkv", ".mov"])
+    return clean.startswith("http") and any(ext in clean for ext in [".m3u8", ".mp4", ".webm", ".mkv", ".mov", "googlevideo.com", "videoplayback"])
 
 
 def resolve_direct_stream(raw_input: str) -> dict:
-    """Prepares direct streaming player payload for MP4 / M3U8 links."""
+    """Prepares direct streaming player payload and 1-click download for MP4 / M3U8 / GoogleVideo links."""
     clean = raw_input.strip()
     is_hls = ".m3u8" in clean.lower()
     parsed_path = urlparse(clean).path
-    filename = os.path.basename(parsed_path) or "Direct Stream Video"
+    filename = os.path.basename(parsed_path) or "Video_Stream.mp4"
+    if "videoplayback" in clean.lower() or "googlevideo" in clean.lower():
+        filename = "GoogleVideo_Stream.mp4"
+
+    dl_url = f"/api/direct/download?url={quote(clean, safe='')}&filename={quote(filename)}"
 
     return {
         "success": True,
         "surl": "direct",
         "full_surl": "direct",
-        "title": f"Direct: {filename}",
-        "size": "Direct Stream",
+        "title": f"Direct Stream: {filename}",
+        "size": "Direct Stream File",
         "size_bytes": 0,
         "duration_str": "HD Quality",
         "thumbnail": None,
         "stream_url": clean,
-        "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
-        "download_url": clean if not is_hls else None,
+        "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else f"/api/direct/download?url={quote(clean, safe='')}&stream=1",
+        "download_url": dl_url,
+        "download_formats": [
+            {
+                "label": "⚡ Direct 1-Click File Download (MP4)",
+                "quality": "Direct HD",
+                "format_id": "direct_mp4",
+                "ext": "mp4",
+                "size": "Direct File",
+                "download_url": dl_url,
+                "direct_url": clean,
+                "is_progressive": True
+            }
+        ],
         "is_hls": is_hls,
         "mode": "direct",
         "playlist": [{
@@ -701,7 +717,7 @@ def resolve_direct_stream(raw_input: str) -> dict:
             "thumbnail": None,
             "stream_url": clean,
             "proxy_stream_url": f"/api/stream/proxy?url={quote(clean, safe='')}" if is_hls else None,
-            "download_url": clean if not is_hls else None
+            "download_url": dl_url
         }]
     }
 
@@ -1355,6 +1371,49 @@ def youtube_download():
         return resp
     except Exception as e:
         return Response(f"Download stream error: {str(e)}", status=500)
+
+
+@app.route('/api/direct/download')
+def direct_download():
+    """Forces direct file attachment download with clean Content-Disposition header for any direct video URL."""
+    target_url = request.args.get('url')
+    filename = request.args.get('filename') or 'video.mp4'
+    is_stream = request.args.get('stream') == '1'
+    if not target_url:
+        return Response("Missing URL parameter", status=400)
+
+    clean_filename = re.sub(r'[\\/*?:"<>|]', "", filename).strip() or "video.mp4"
+    if not clean_filename.endswith(('.mp4', '.mkv', '.webm', '.m4a', '.mp3', '.mov')):
+        clean_filename += '.mp4'
+
+    req_headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    }
+    if 'Range' in request.headers:
+        req_headers['Range'] = request.headers['Range']
+
+    try:
+        r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
+        def generate():
+            for chunk in r.iter_content(chunk_size=131072):
+                if chunk:
+                    yield chunk
+
+        content_type = r.headers.get('content-type', 'video/mp4')
+        resp = Response(generate(), status=r.status_code, content_type=content_type)
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+        if not is_stream:
+            resp.headers['Content-Disposition'] = f'attachment; filename="{clean_filename}"'
+        if 'Content-Length' in r.headers:
+            resp.headers['Content-Length'] = r.headers['Content-Length']
+        if 'Content-Range' in r.headers:
+            resp.headers['Content-Range'] = r.headers['Content-Range']
+        if 'Accept-Ranges' in r.headers:
+            resp.headers['Accept-Ranges'] = r.headers['Accept-Ranges']
+        return resp
+    except Exception as e:
+        return Response(f"Direct download stream error: {str(e)}", status=500)
 
 
 @app.route('/api/stream/proxy')

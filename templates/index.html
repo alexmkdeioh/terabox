@@ -338,6 +338,37 @@
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     ></iframe>
                 </div>
+
+                <!-- DiskWala Direct Action & Media Container -->
+                <div id="diskwalaPlayerContainer" class="hidden w-full aspect-video min-h-[360px] sm:min-h-[440px] bg-slate-950 relative flex items-center justify-center p-4 sm:p-6 overflow-hidden">
+                    <img id="dwBackdropImg" src="" class="absolute inset-0 w-full h-full object-cover blur-3xl opacity-25 pointer-events-none scale-110">
+                    <div class="relative z-10 max-w-lg w-full glass-panel border border-purple-500/40 rounded-2xl p-6 sm:p-8 flex flex-col items-center text-center shadow-2xl backdrop-blur-2xl">
+                        <div class="relative w-32 h-20 sm:w-40 sm:h-24 rounded-xl overflow-hidden mb-4 border border-purple-500/50 shadow-glow bg-black flex items-center justify-center">
+                            <img id="dwThumbImg" src="" class="w-full h-full object-cover" onerror="this.src='https://cdn-icons-png.flaticon.com/512/1179/1179069.png'">
+                            <div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent flex items-end justify-center pb-1">
+                                <span class="text-[10px] font-bold text-purple-300 font-mono" id="dwSizeBadge">HD Video</span>
+                            </div>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/40 mb-2">
+                            <i data-lucide="hard-drive" class="w-3.5 h-3.5 text-purple-400"></i>
+                            <span>DiskWala HD Cloud File</span>
+                        </span>
+                        <h3 id="dwTitleText" class="text-base sm:text-lg font-bold text-white mb-2 line-clamp-2">DiskWala Video</h3>
+                        <p class="text-xs text-slate-400 mb-5 leading-relaxed">
+                            File is verified and ready. Tap below to download high-speed direct file or launch in app.
+                        </p>
+                        <div class="flex flex-wrap items-center justify-center gap-3 w-full">
+                            <a id="dwDownloadBtn" href="#" target="_blank" class="flex-1 min-w-[170px] bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold py-3 px-5 rounded-xl shadow-glow transition flex items-center justify-center gap-2 text-xs sm:text-sm">
+                                <i data-lucide="download" class="w-4 h-4"></i>
+                                <span>Download HD Video</span>
+                            </a>
+                            <a id="dwAppBtn" href="#" target="_blank" class="bg-purple-600/30 hover:bg-purple-600 border border-purple-500/40 text-purple-200 hover:text-white font-semibold py-3 px-5 rounded-xl transition flex items-center justify-center gap-2 text-xs sm:text-sm">
+                                <i data-lucide="external-link" class="w-4 h-4"></i>
+                                <span>Open in App</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <!-- Metadata & Action Toolbar -->
@@ -728,11 +759,12 @@
 
         // Initialize Plyr
         function initPlyr() {
+            const dlUrl = (currentData && currentData.download_url) ? currentData.download_url : (nativeVideo.src || '');
             if (!plyrPlayer) {
                 plyrPlayer = new Plyr(nativeVideo, {
                     controls: [
                         'play-large', 'play', 'progress', 'current-time', 'duration',
-                        'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'fullscreen'
+                        'mute', 'volume', 'captions', 'settings', 'pip', 'airplay', 'download', 'fullscreen'
                     ],
                     settings: ['speed', 'quality'],
                     speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
@@ -740,13 +772,19 @@
                     toggleInvert: false,
                     displayDuration: true,
                     autoplay: true,
-                    keyboard: { focused: true, global: true }
+                    keyboard: { focused: true, global: true },
+                    urls: {
+                        download: dlUrl
+                    }
                 });
+            } else if (dlUrl) {
+                plyrPlayer.download = dlUrl;
             }
         }
 
         // Play Video Stream (HLS or Progressive MP4)
         function loadHlsStream(streamUrl, posterUrl, isHls = false) {
+            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.add('hidden');
             nativePlayerContainer.classList.remove('hidden');
             iframePlayerContainer.classList.add('hidden');
 
@@ -820,6 +858,7 @@
 
         // Fallback to Iframe Mirror
         function loadIframeMirror(embedUrl) {
+            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.add('hidden');
             if (hlsInstance) {
                 hlsInstance.destroy();
                 hlsInstance = null;
@@ -867,6 +906,35 @@
             showToast('Shareable Link copied!');
         });
 
+        const diskwalaPlayerContainer = document.getElementById('diskwalaPlayerContainer');
+        const dwBackdropImg = document.getElementById('dwBackdropImg');
+        const dwThumbImg = document.getElementById('dwThumbImg');
+        const dwSizeBadge = document.getElementById('dwSizeBadge');
+        const dwTitleText = document.getElementById('dwTitleText');
+        const dwDownloadBtn = document.getElementById('dwDownloadBtn');
+        const dwAppBtn = document.getElementById('dwAppBtn');
+
+        function showDiskwalaCard(data) {
+            if (hlsInstance) {
+                hlsInstance.destroy();
+                hlsInstance = null;
+            }
+            if (nativeVideo) {
+                nativeVideo.pause();
+            }
+            nativePlayerContainer.classList.add('hidden');
+            iframePlayerContainer.classList.add('hidden');
+            if (diskwalaPlayerContainer) diskwalaPlayerContainer.classList.remove('hidden');
+
+            if (dwBackdropImg) dwBackdropImg.src = data.thumbnail || '';
+            if (dwThumbImg) dwThumbImg.src = data.thumbnail || 'https://cdn-icons-png.flaticon.com/512/1179/1179069.png';
+            if (dwSizeBadge) dwSizeBadge.textContent = data.size || 'HD Video';
+            if (dwTitleText) dwTitleText.textContent = data.title || 'DiskWala Video';
+            if (dwDownloadBtn) dwDownloadBtn.href = data.download_url || `https://www.diskwala.com/app/${data.surl}`;
+            if (dwAppBtn) dwAppBtn.href = `https://www.diskwala.com/app/${data.surl}`;
+            lucide.createIcons();
+        }
+
         // Render Multi-Quality Download Formats
         function renderDownloadFormats(formats) {
             const formatSection = document.getElementById('formatSection');
@@ -875,20 +943,26 @@
                 formatSection.classList.add('hidden');
                 return;
             }
-            formatGrid.innerHTML = formats.map(df => `
-                <a href="${df.download_url}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+            formatGrid.innerHTML = formats.map(df => {
+                const dlUrl = df.download_url || df.url || '#';
+                const qualityName = df.quality || df.label || df.resolution || 'HD Video';
+                const sizeName = df.size || '';
+                const extName = (df.ext || 'MP4').toUpperCase();
+                return `
+                <a href="${dlUrl}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
                     <div class="flex items-center gap-2.5 min-w-0">
                         <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
-                            <i data-lucide="${(df.quality && df.quality.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
+                            <i data-lucide="${(qualityName.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
                         </div>
                         <div class="min-w-0">
-                            <p class="text-xs font-semibold text-white truncate">${df.quality}</p>
-                            <span class="text-[10px] text-slate-400 font-mono">${df.size} • ${(df.ext || 'MP4').toUpperCase()}</span>
+                            <p class="text-xs font-semibold text-white truncate">${qualityName}</p>
+                            <span class="text-[10px] text-slate-400 font-mono">${sizeName}${sizeName ? ' • ' : ''}${extName}</span>
                         </div>
                     </div>
                     <span class="text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">↓</span>
                 </a>
-            `).join('');
+                `;
+            }).join('');
             formatSection.classList.remove('hidden');
             lucide.createIcons();
         }
@@ -1210,7 +1284,9 @@
                 // Load Video Stream
                 playerSection.classList.remove('hidden');
 
-                if (data.stream_url) {
+                if (data.mode === 'diskwala') {
+                    showDiskwalaCard(data);
+                } else if (data.stream_url) {
                     loadHlsStream(data.stream_url, data.thumbnail, data.is_hls);
                 } else if (data.embed_url) {
                     loadIframeMirror(data.embed_url);
@@ -1227,7 +1303,7 @@
                     timestamp: Date.now()
                 });
 
-                showToast('Video ready for streaming!');
+                showToast(data.mode === 'diskwala' ? 'DiskWala video ready!' : 'Video ready for streaming!');
                 playerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             } catch (err) {
@@ -1249,7 +1325,7 @@
                 if (activeMode !== 'diskwala') switchSearchMode('diskwala');
             } else if (clean.includes('flare') || clean.includes('flaredvns') || clean.includes('cashsnap') || clean.includes('hugebox') || clean.includes('blinknote')) {
                 if (activeMode !== 'flare') switchSearchMode('flare');
-            } else if (clean.includes('.m3u8') || clean.includes('.mp4') || clean.includes('.webm') || clean.includes('.mkv')) {
+            } else if (clean.includes('.m3u8') || clean.includes('.mp4') || clean.includes('.webm') || clean.includes('.mkv') || clean.includes('googlevideo.com') || clean.includes('videoplayback')) {
                 if (activeMode !== 'direct') switchSearchMode('direct');
             } else if (clean.includes('terabox') || clean.includes('1024tera') || clean.includes('terashare') || clean.includes('nephobox') || clean.includes('4funbox')) {
                 if (activeMode !== 'terabox') switchSearchMode('terabox');
@@ -1288,12 +1364,16 @@
         if (currentData && currentData.download_formats) {
             renderDownloadFormats(currentData.download_formats);
         }
-        if (currentData && currentData.stream_url) {
-            loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
-        } else if (currentData && currentData.embed_url) {
-            loadIframeMirror(currentData.embed_url);
-        } else if (currentData && currentData.surl) {
-            loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
+        if (currentData) {
+            if (currentData.mode === 'diskwala') {
+                showDiskwalaCard(currentData);
+            } else if (currentData.stream_url) {
+                loadHlsStream(currentData.stream_url, currentData.thumbnail, currentData.is_hls);
+            } else if (currentData.embed_url) {
+                loadIframeMirror(currentData.embed_url);
+            } else if (currentData.surl) {
+                loadIframeMirror(`https://www.terabox.app/sharing/embed?surl=1${currentData.surl}`);
+            }
         }
     </script>
 </body>
