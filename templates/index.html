@@ -251,13 +251,9 @@
                 </button>
             </form>
 
-            <!-- Quick Example Bar -->
-            <div class="flex items-center justify-between text-xs text-slate-500 mt-3 pt-2 border-t border-dark-border/40">
+            <!-- Tip Helper Bar -->
+            <div class="text-xs text-slate-500 mt-3 pt-2 border-t border-dark-border/40">
                 <span id="boxHintText">💡 Tip: You can paste full share links, shortlinks, or raw share IDs.</span>
-                <button type="button" id="tryExampleBtn" onclick="loadCurrentExample()" class="text-brand-400 hover:text-brand-300 font-medium hover:underline flex items-center gap-1 transition">
-                    <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
-                    <span>Try Sample Link</span>
-                </button>
             </div>
 
             <!-- Error Notice Box -->
@@ -759,7 +755,6 @@
                 `,
                 placeholder: 'Paste any TeraBox / TeraShare / TeraBoxLink URL (e.g. terasharefile.com/s/..., terabox.app/s/...)',
                 hint: '💡 Tip: You can paste full share links, shortlinks, or raw share IDs.',
-                example: 'https://teraboxshare.com/s/1d0a5b_sample',
                 btnText: 'Stream & Download',
                 icon: 'link-2',
                 iconColor: 'text-brand-400'
@@ -776,7 +771,6 @@
                 `,
                 placeholder: 'Paste Flare link (e.g. flaredvns.com/s/2096112993141268482 or flarekkox.com/?linkId=...)',
                 hint: '🔥 Tip: Paste any flaredvns link or numeric linkId to stream instantly.',
-                example: 'https://flaredvns.com/s/2096112993141268482',
                 btnText: 'Play Flare Stream',
                 icon: 'flame',
                 iconColor: 'text-amber-400'
@@ -793,7 +787,6 @@
                 `,
                 placeholder: 'Paste direct video URL (e.g. https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8 or video.mp4)',
                 hint: '🎬 Tip: Supports all standard HLS (.m3u8) live streams & MP4 files with cloud proxy bypass.',
-                example: 'https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8',
                 btnText: 'Play Direct Video',
                 icon: 'play-circle',
                 iconColor: 'text-emerald-400'
@@ -842,15 +835,6 @@
 
             urlInput.focus();
             lucide.createIcons();
-        };
-
-        window.loadCurrentExample = function() {
-            const cfg = modeConfigs[activeMode];
-            if (cfg && cfg.example) {
-                urlInput.value = cfg.example;
-                clearBtn.classList.remove('hidden');
-                urlInput.focus();
-            }
         };
 
         // Form Submit Handler
