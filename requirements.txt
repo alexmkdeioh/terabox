@@ -4,5 +4,6 @@ gunicorn>=21.2.0
 psycopg2-binary>=2.9.9
 pycryptodome>=3.20.0
 yt-dlp>=2024.0.0
+playwright>=1.40.0
 
 

@@ -1533,34 +1533,35 @@ def admin_clear():
 
 @app.route('/api/diag')
 def api_diag():
-    import shutil
     clean_id = request.args.get('id', '69176413f37dbe35e7b299a5')
     node_bin = shutil.which('node') or shutil.which('nodejs')
-    chrome_bins = [p for p in ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome', 'chrome.exe'] if shutil.which(p) or os.path.exists(p)]
     
+    # Check all possible browser locations
+    possible_dirs = [
+        os.path.expanduser('~/.cache/ms-playwright'),
+        os.path.expanduser('~/.cache/puppeteer'),
+        '/opt/render/project/src/browser'
+    ]
+    found_browsers = []
+    for d in possible_dirs:
+        if os.path.exists(d):
+            for root, dirs, files in os.walk(d):
+                for f in files:
+                    if f in ['chrome', 'chromium', 'chrome.exe']:
+                        found_browsers.append(os.path.join(root, f))
+                        
     engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
     engine_exists = os.path.exists(engine_path)
     
-    run_output = None
-    run_err = None
-    returncode = None
-    if node_bin and engine_exists:
-        try:
-            res = subprocess.run([node_bin, engine_path, clean_id], capture_output=True, text=True, timeout=25)
-            run_output = res.stdout
-            run_err = res.stderr
-            returncode = res.returncode
-        except Exception as e:
-            run_err = str(e)
-            
+    # Test resolve
+    resolve_test = resolve_diskwala_stream(clean_id)
+    
     return jsonify({
         "platform": sys.platform,
         "node": node_bin,
-        "chrome_paths": chrome_bins,
+        "found_browsers": found_browsers,
         "engine_exists": engine_exists,
-        "returncode": returncode,
-        "stdout": run_output,
-        "stderr": run_err
+        "resolve_result": resolve_test
     })
 
 

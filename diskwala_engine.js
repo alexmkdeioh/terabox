@@ -3,8 +3,26 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
+function findBinaryRecursive(dir, maxDepth = 4) {
+  if (!dir || !fs.existsSync(dir) || maxDepth <= 0) return null;
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isFile() && (entry.name === 'chrome' || entry.name === 'chromium' || entry.name === 'chrome.exe')) {
+        return fullPath;
+      }
+      if (entry.isDirectory()) {
+        const found = findBinaryRecursive(fullPath, maxDepth - 1);
+        if (found) return found;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 function findBrowser() {
-  const paths = [
+  const directPaths = [
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/usr/bin/google-chrome',
@@ -13,9 +31,22 @@ function findBrowser() {
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe'
   ];
-  for (const p of paths) {
+  for (const p of directPaths) {
     if (fs.existsSync(p)) return p;
   }
+
+  const home = process.env.HOME || '/root';
+  const searchDirs = [
+    path.join(home, '.cache', 'ms-playwright'),
+    path.join(home, '.cache', 'puppeteer'),
+    path.join(process.cwd(), 'browser'),
+    '/opt/render/project/src/browser'
+  ];
+  for (const d of searchDirs) {
+    const found = findBinaryRecursive(d);
+    if (found) return found;
+  }
+
   return process.platform === 'win32' ? 'chrome.exe' : 'chromium';
 }
 
