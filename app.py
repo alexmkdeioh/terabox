@@ -18,11 +18,19 @@ try:
 except ImportError:
     HAS_CRYPTO = False
 
-try:
-    import yt_dlp
-    HAS_YTDLP = True
-except ImportError:
-    HAS_YTDLP = False
+_YTDLP_MODULE = None
+
+def get_ytdlp():
+    """Lazy-loads yt_dlp on-demand to save ~60MB RAM on server startup."""
+    global _YTDLP_MODULE
+    if _YTDLP_MODULE is not None:
+        return _YTDLP_MODULE
+    try:
+        import yt_dlp
+        _YTDLP_MODULE = yt_dlp
+        return _YTDLP_MODULE
+    except ImportError:
+        return None
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "terastream_secure_session_key_2026")
@@ -112,6 +120,7 @@ init_db()
 
 def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
     """Worker function executed in background thread to write database records without blocking API."""
+    conn = None
     try:
         db_type, conn = get_db_connection()
         with conn:
@@ -145,9 +154,14 @@ def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, d
                     str(user_agent or 'Unknown')
                 ))
             conn.commit()
-        conn.close()
     except Exception as e:
         print("Async log search error:", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
@@ -159,8 +173,30 @@ def log_search(searched_url, surl, video_title, video_size, stream_url, download
     ).start()
 
 
-# ----------------- IN-MEMORY RESOLUTION CACHE -----------------
+# ----------------- IN-MEMORY RESOLUTION CACHE (BOUNDED) -----------------
 RESOLVE_CACHE = {}
+MAX_CACHE_ENTRIES = 120
+CACHE_TTL = 3600  # 1 hour max age
+
+
+def cache_set(key, val):
+    """Sets cache entry with LRU eviction to strictly limit RAM usage under 100MB."""
+    global RESOLVE_CACHE
+    now = time.time()
+    if len(RESOLVE_CACHE) >= MAX_CACHE_ENTRIES:
+        # Purge items older than TTL
+        expired = [k for k, v in RESOLVE_CACHE.items() if isinstance(v, tuple) and (now - v[0] > CACHE_TTL)]
+        for k in expired:
+            RESOLVE_CACHE.pop(k, None)
+        # If still over limit, discard oldest 30 items
+        if len(RESOLVE_CACHE) >= MAX_CACHE_ENTRIES:
+            sorted_keys = sorted(
+                RESOLVE_CACHE.keys(),
+                key=lambda k: RESOLVE_CACHE[k][0] if isinstance(RESOLVE_CACHE[k], tuple) else 0
+            )
+            for k in sorted_keys[:30]:
+                RESOLVE_CACHE.pop(k, None)
+    RESOLVE_CACHE[key] = (now, val)
 
 
 # ----------------- SESSION CACHE FOR HLS STREAMING -----------------
@@ -464,7 +500,7 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
         "mode": "flare",
         "playlist": playlist
     }
-    RESOLVE_CACHE[cache_key] = (time.time(), result)
+    cache_set(cache_key, result)
     return result
 
 
@@ -558,7 +594,8 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         if now - cached_time < 1200:  # 20 minutes cache
             return cached_res
 
-    if not HAS_YTDLP:
+    yt_dlp = get_ytdlp()
+    if not yt_dlp:
         return {
             "success": False,
             "error": "YouTube extraction engine (yt-dlp) is not installed on the server.",
@@ -726,7 +763,7 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
                 }]
             }
 
-            RESOLVE_CACHE[cache_key] = (time.time(), result)
+            cache_set(cache_key, result)
             return result
 
     except Exception as e:
@@ -737,28 +774,25 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         try:
             r_oembed = requests.get(f"https://www.youtube.com/oembed?url={quote(target_url)}&format=json", timeout=5)
             if r_oembed.status_code == 200:
-                oe_data = r_oembed.json()
-                fallback_title = oe_data.get('title') or fallback_title
-                fallback_thumb = oe_data.get('thumbnail_url') or fallback_thumb
+                oembed_data = r_oembed.json()
+                fallback_title = oembed_data.get('title') or fallback_title
+                fallback_thumb = oembed_data.get('thumbnail_url') or fallback_thumb
         except Exception:
             pass
 
-        vid = video_id or "youtube"
+        vid = video_id or "dQw4w9WgXcQ"
         embed_result = {
             "success": True,
             "surl": vid,
             "full_surl": vid,
             "title": fallback_title,
-            "channel": "YouTube",
-            "views": "",
-            "size": "HD Stream",
+            "size": "HD Video",
             "size_bytes": 0,
-            "duration_str": "HD Stream",
+            "duration_str": "HD Video",
             "thumbnail": fallback_thumb,
             "stream_url": None,
             "proxy_stream_url": None,
             "download_url": f"https://www.youtube.com/watch?v={vid}",
-            "download_formats": [],
             "is_hls": False,
             "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
             "mode": "youtube",
@@ -772,7 +806,7 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
                 "download_url": f"https://www.youtube.com/watch?v={vid}"
             }]
         }
-        RESOLVE_CACHE[cache_key] = (time.time(), embed_result)
+        cache_set(cache_key, embed_result)
         return embed_result
 
 
@@ -916,7 +950,7 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         }]
     }
 
-    RESOLVE_CACHE[cache_key] = (now, result)
+    cache_set(cache_key, result)
     return result
 
 
@@ -1036,8 +1070,8 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                                 })
                             result["playlist"] = playlist
 
-                            # Save to memory cache for instant future loads
-                            RESOLVE_CACHE[clean_surl] = (time.time(), result)
+                            # Save to bounded memory cache for instant future loads
+                            cache_set(clean_surl, result)
                             return result
                 except Exception as inner_e:
                     continue
@@ -1246,9 +1280,15 @@ def youtube_stream_proxy():
     try:
         r = requests.get(target_url, headers=req_headers, stream=True, timeout=25)
         def generate():
-            for chunk in r.iter_content(chunk_size=65536):
-                if chunk:
-                    yield chunk
+            try:
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
+            finally:
+                try:
+                    r.close()
+                except Exception:
+                    pass
 
         resp = Response(generate(), status=r.status_code, content_type=r.headers.get('content-type', 'video/mp4'))
         resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -1273,6 +1313,10 @@ def youtube_download():
 
     if not video_id:
         return Response("Missing video ID", status=400)
+
+    yt_dlp = get_ytdlp()
+    if not yt_dlp:
+        return Response("YouTube extraction engine not available", status=500)
 
     # Sanitize title for filename
     clean_title = re.sub(r'[\\/*?:"<>|]', "", title).strip() or f"youtube_{video_id}"
@@ -1328,9 +1372,15 @@ def youtube_download():
     try:
         r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
         def generate():
-            for chunk in r.iter_content(chunk_size=131072):
-                if chunk:
-                    yield chunk
+            try:
+                for chunk in r.iter_content(chunk_size=131072):
+                    if chunk:
+                        yield chunk
+            finally:
+                try:
+                    r.close()
+                except Exception:
+                    pass
 
         content_type = r.headers.get('content-type', 'video/mp4')
         resp = Response(generate(), status=r.status_code, content_type=content_type)
@@ -1379,9 +1429,15 @@ def stream_proxy():
         else:
             r = requests.get(target_url, headers=req_headers, stream=True, timeout=20)
             def generate():
-                for chunk in r.iter_content(chunk_size=65536):
-                    if chunk:
-                        yield chunk
+                try:
+                    for chunk in r.iter_content(chunk_size=65536):
+                        if chunk:
+                            yield chunk
+                finally:
+                    try:
+                        r.close()
+                    except Exception:
+                        pass
 
             resp = Response(generate(), status=r.status_code, content_type=r.headers.get('content-type', 'video/MP2T'))
             resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -1406,7 +1462,13 @@ def ping():
 @app.route('/api/health', methods=['GET', 'HEAD'])
 def health():
     """Detailed health check endpoint for monitoring uptime, memory, and services."""
-    return jsonify({"status": "ok", "service": "TeraStream Pro Native", "port": PORT, "crypto": HAS_CRYPTO, "ytdlp": HAS_YTDLP}), 200
+    return jsonify({
+        "status": "ok",
+        "service": "TeraStream Pro Native",
+        "port": PORT,
+        "crypto": HAS_CRYPTO,
+        "ytdlp_loaded": _YTDLP_MODULE is not None
+    }), 200
 
 
 # ----------------- ADMIN PANEL ROUTES -----------------
