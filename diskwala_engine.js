@@ -58,7 +58,7 @@ export async function resolveDiskwalaLink(linkId) {
       size_bytes: 0,
       duration_str: "HD Video",
       thumbnail: null,
-      stream_url: `https://flowvideoplayer.com/?v=${linkId}`,
+      stream_url: null,
       download_url: `https://www.diskwala.com/app/${linkId}`,
       is_hls: false,
       mode: "diskwala",
@@ -67,7 +67,7 @@ export async function resolveDiskwalaLink(linkId) {
         title: `DiskWala Video (${linkId})`,
         size: "HD Video",
         thumbnail: null,
-        stream_url: `https://flowvideoplayer.com/?v=${linkId}`,
+        stream_url: null,
         download_url: `https://www.diskwala.com/app/${linkId}`
       }]
     };
@@ -140,7 +140,7 @@ export async function resolveDiskwalaLink(linkId) {
         size_bytes: rawBytes,
         duration_str: "HD Stream",
         thumbnail: null,
-        stream_url: `https://flowvideoplayer.com/?v=${linkId}`,
+        stream_url: null,
         proxy_stream_url: null,
         download_url: `https://www.diskwala.com/app/${linkId}`,
         is_hls: false,
@@ -150,7 +150,7 @@ export async function resolveDiskwalaLink(linkId) {
           title: displayTitle,
           size: sizeStr,
           thumbnail: null,
-          stream_url: `https://flowvideoplayer.com/?v=${linkId}`,
+          stream_url: null,
           download_url: `https://www.diskwala.com/app/${linkId}`
         }]
       };
