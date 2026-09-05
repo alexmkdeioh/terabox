@@ -4,13 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="referrer" content="no-referrer">
-    <title>TeraStream Pro - High Speed Video Streamer & Downloader</title>
+    <title>TeraStream Pro - Ultra Fast Video Streamer & Downloader</title>
     <!-- Favicon -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%2338bdf8'><path d='M8 5v14l11-7z'/></svg>">
-    <!-- Google Fonts -->
+    
+    <!-- Ultra-Fast Resource Preloading -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdn.plyr.io" crossorigin>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    
+    <!-- Google Fonts with font-display: swap for 0ms layout shift -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -44,11 +51,22 @@
                         'glow': '0 0 30px -5px rgba(14, 165, 233, 0.3)',
                         'glow-lg': '0 0 50px -10px rgba(14, 165, 233, 0.4)',
                         'player': '0 25px 50px -12px rgba(0, 0, 0, 0.85), 0 0 35px rgba(14, 165, 233, 0.15)',
+                    },
+                    animation: {
+                        'shimmer': 'shimmer 1.8s infinite linear',
+                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                    },
+                    keyframes: {
+                        shimmer: {
+                            '0%': { backgroundPosition: '-200% 0' },
+                            '100%': { backgroundPosition: '200% 0' },
+                        }
                     }
                 }
             }
         }
     </script>
+    
     <!-- Plyr CSS & JS -->
     <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css" />
     <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
@@ -56,23 +74,34 @@
     <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
     <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
         body {
             background-color: #070b14;
             background-image: 
                 radial-gradient(at 0% 0%, rgba(14, 165, 233, 0.12) 0px, transparent 50%),
                 radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.1) 0px, transparent 50%);
             background-attachment: fixed;
+            font-feature-settings: "cv02", "cv03", "cv04", "cv11";
         }
         .glass-panel {
-            background: rgba(15, 23, 42, 0.85);
+            background: rgba(15, 23, 42, 0.82);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.08);
+            contain: content;
         }
         .glass-input {
-            background: rgba(10, 15, 29, 0.9);
+            background: rgba(10, 15, 29, 0.92);
             border: 1px solid rgba(255, 255, 255, 0.12);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-input:focus {
+            border-color: #0ea5e9;
+            box-shadow: 0 0 20px rgba(14, 165, 233, 0.25);
         }
         .plyr--video {
             border-radius: 1rem;
@@ -91,7 +120,7 @@
             align-items: center !important;
             gap: 6px !important;
             padding: 10px 16px !important;
-            background: linear-gradient(to top, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.3) 70%, transparent) !important;
+            background: linear-gradient(to top, rgba(0, 0, 0, 0.92), rgba(0, 0, 0, 0.35) 70%, transparent) !important;
         }
         .plyr__progress__container {
             flex: 1 1 auto !important;
@@ -143,6 +172,27 @@
             max-height: 85vh !important;
             height: 80vh !important;
         }
+        /* Shimmer Skeleton Animation */
+        .skeleton {
+            background: linear-gradient(90deg, rgba(30, 41, 59, 0.4) 0%, rgba(51, 65, 85, 0.6) 50%, rgba(30, 41, 59, 0.4) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.6s infinite linear;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #070b14;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e293b;
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #334155;
+        }
     </style>
 </head>
 <body class="text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
@@ -151,7 +201,7 @@
     <header class="w-full border-b border-dark-border/80 glass-panel sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <a href="/" class="flex items-center gap-3 group">
-                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-glow group-hover:scale-105 transition duration-200">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-indigo-600 flex items-center justify-center shadow-glow group-hover:scale-105 active:scale-95 transition duration-200">
                     <i data-lucide="play" class="w-5 h-5 text-white fill-white ml-0.5"></i>
                 </div>
                 <div>
@@ -159,50 +209,50 @@
                         <span class="font-heading font-bold text-xl tracking-tight bg-gradient-to-r from-white via-slate-100 to-brand-400 bg-clip-text text-transparent">TeraStream</span>
                         <span class="text-[10px] font-bold uppercase tracking-wider bg-brand-500/20 text-brand-400 px-2 py-0.5 rounded-full border border-brand-500/30">Native Pro</span>
                     </div>
-                    <p class="text-[11px] text-slate-400 -mt-0.5">100% Ad-Free • Instant Playback & Downloader</p>
+                    <p class="text-[11px] text-slate-400 -mt-0.5 hidden sm:block">100% Ad-Free • Instant Playback & Downloader</p>
                 </div>
             </a>
 
-            <div class="flex items-center gap-3">
-                <button id="toggleHistoryBtn" class="flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-dark-cardAlt hover:bg-slate-800 border border-dark-border transition">
+            <div class="flex items-center gap-2 sm:gap-3">
+                <button id="shortcutsBtn" title="Keyboard Shortcuts (?)" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-white bg-dark-cardAlt hover:bg-slate-800 border border-dark-border transition flex items-center gap-1.5">
+                    <i data-lucide="keyboard" class="w-3.5 h-3.5 text-brand-400"></i>
+                    <span class="hidden md:inline">Shortcuts</span>
+                </button>
+                <button id="toggleHistoryBtn" class="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-dark-cardAlt hover:bg-slate-800 border border-dark-border transition">
                     <i data-lucide="history" class="w-4 h-4 text-brand-400"></i>
-                    <span class="hidden sm:inline">Recent Watchlist</span>
+                    <span class="hidden sm:inline">Watchlist</span>
                 </button>
                 <div class="h-4 w-[1px] bg-dark-border hidden sm:block"></div>
-                <div class="hidden sm:flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2.5 py-1 rounded-full">
+                <div class="flex items-center gap-1.5 text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2.5 py-1 rounded-full">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <span>High-Speed HLS Active</span>
+                    <span class="font-medium text-[11px] sm:text-xs">HLS Turbo</span>
                 </div>
             </div>
         </div>
     </header>
 
     <!-- Main Container -->
-    <main id="mainContainer" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-8 flex flex-col gap-6 transition-all duration-300">
+    <main id="mainContainer" class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 flex flex-col gap-6 transition-all duration-300">
         
         <!-- Hero Section & Multi-Box Link Input Bar -->
-        <section class="glass-panel rounded-2xl p-6 sm:p-8 shadow-xl relative overflow-hidden">
+        <section class="glass-panel rounded-2xl p-5 sm:p-8 shadow-xl relative overflow-hidden">
             <div class="absolute -right-20 -top-20 w-64 h-64 bg-brand-500/10 rounded-full blur-3xl pointer-events-none"></div>
             
             <!-- Multi-Search Mode Selector Tabs -->
-            <div class="flex items-center gap-2 p-1.5 bg-dark-bg/90 rounded-2xl border border-dark-border w-fit max-w-full overflow-x-auto mb-6 scrollbar-none">
-                <button type="button" id="tabTerabox" onclick="switchSearchMode('terabox')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow">
+            <div class="flex items-center gap-2 p-1.5 bg-dark-bg/90 rounded-2xl border border-dark-border w-fit max-w-full overflow-x-auto mb-5 scrollbar-none">
+                <button type="button" id="tabTerabox" onclick="switchSearchMode('terabox')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow shrink-0">
                     <i data-lucide="zap" class="w-4 h-4 text-brand-300"></i>
                     <span>⚡ TeraBox</span>
                 </button>
-                <button type="button" id="tabYoutube" onclick="switchSearchMode('youtube')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                <button type="button" id="tabYoutube" onclick="switchSearchMode('youtube')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80 shrink-0">
                     <i data-lucide="youtube" class="w-4 h-4 text-rose-500"></i>
                     <span>▶️ YouTube Stream & DL</span>
                 </button>
-                <button type="button" id="tabFlare" onclick="switchSearchMode('flare')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                <button type="button" id="tabFlare" onclick="switchSearchMode('flare')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80 shrink-0">
                     <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>
                     <span>🔥 Flare / CashSnap</span>
                 </button>
-                <button type="button" id="tabDiskwala" onclick="switchSearchMode('diskwala')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
-                    <i data-lucide="hard-drive" class="w-4 h-4 text-purple-400"></i>
-                    <span>💾 DiskWala</span>
-                </button>
-                <button type="button" id="tabDirect" onclick="switchSearchMode('direct')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
+                <button type="button" id="tabDirect" onclick="switchSearchMode('direct')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80 shrink-0">
                     <i data-lucide="play-circle" class="w-4 h-4 text-emerald-400"></i>
                     <span>🎬 Direct M3U8 / MP4</span>
                 </button>
@@ -212,10 +262,10 @@
                 <h1 id="heroTitle" class="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold tracking-tight text-white mb-2">
                     TeraBox <span class="bg-gradient-to-r from-brand-400 to-indigo-400 bg-clip-text text-transparent">Direct Stream & Downloader</span>
                 </h1>
-                <p id="heroSubtitle" class="text-sm sm:text-base text-slate-400 mb-3">
+                <p id="heroSubtitle" class="text-xs sm:text-sm text-slate-400 mb-3">
                     Stream your videos instantly with zero ads, bypass all Cloudflare limits, and download at maximum speed.
                 </p>
-                <div id="heroBadges" class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-6">
+                <div id="heroBadges" class="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400 mb-5">
                     <span class="text-slate-500 font-medium">Supports:</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-brand-400 font-mono font-medium">teraboxlink</span>
                     <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-indigo-400 font-mono font-medium">terasharefile.com</span>
@@ -237,10 +287,12 @@
                         id="urlInput"
                         placeholder="Paste any TeraBox / TeraShare / TeraBoxLink URL (e.g. terasharefile.com/s/..., terabox.app/s/...)" 
                         required
+                        autocomplete="off"
+                        spellcheck="false"
                         class="w-full glass-input rounded-xl pl-11 pr-24 py-3.5 text-sm sm:text-base text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500 transition duration-200"
                     />
                     <div class="absolute inset-y-0 right-0 pr-2 flex items-center gap-1">
-                        <button type="button" id="pasteBtn" title="Paste from clipboard" class="px-2.5 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition flex items-center gap-1">
+                        <button type="button" id="pasteBtn" title="Paste from clipboard" class="px-2.5 py-1 text-xs text-slate-400 hover:text-white hover:bg-slate-800 active:scale-95 rounded-lg transition flex items-center gap-1">
                             <i data-lucide="clipboard" class="w-3.5 h-3.5"></i>
                             <span class="hidden sm:inline">Paste</span>
                         </button>
@@ -252,7 +304,7 @@
                 <button 
                     type="submit" 
                     id="submitBtn"
-                    class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold px-7 py-3.5 rounded-xl shadow-glow hover:shadow-glow-lg transition duration-200 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                    class="bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white font-semibold px-7 py-3.5 rounded-xl shadow-glow hover:shadow-glow-lg active:scale-95 transition duration-200 flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
                 >
                     <i data-lucide="play" class="w-4 h-4 fill-white"></i>
                     <span id="submitBtnText">Stream & Download</span>
@@ -260,12 +312,13 @@
             </form>
 
             <!-- Tip Helper Bar -->
-            <div class="text-xs text-slate-500 mt-3 pt-2 border-t border-dark-border/40">
+            <div class="text-[11px] sm:text-xs text-slate-500 mt-3 pt-2 border-t border-dark-border/40 flex items-center justify-between">
                 <span id="boxHintText">💡 Tip: You can paste full share links, shortlinks, or raw share IDs.</span>
+                <span class="hidden md:inline text-slate-500">Press <kbd class="px-1.5 py-0.5 rounded bg-dark-bg border border-dark-border text-slate-300 font-mono text-[10px]">Enter</kbd> to stream</span>
             </div>
 
             <!-- Error Notice Box -->
-            <div id="errorBox" class="hidden mt-4 p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-sm flex items-start gap-3">
+            <div id="errorBox" class="hidden mt-4 p-4 rounded-xl bg-rose-950/40 border border-rose-800/60 text-rose-300 text-sm flex items-start gap-3 animate-pulse">
                 <i data-lucide="alert-circle" class="w-5 h-5 text-rose-400 shrink-0 mt-0.5"></i>
                 <div class="flex-1">
                     <p id="errorMessage" class="font-medium">Failed to process link.</p>
@@ -273,43 +326,71 @@
             </div>
         </section>
 
-        <!-- Loading State Placeholder -->
-        <div id="loadingState" class="hidden glass-panel rounded-2xl p-12 text-center flex-col items-center justify-center gap-4">
-            <div class="relative w-16 h-16">
-                <div class="w-16 h-16 rounded-full border-4 border-slate-800 border-t-brand-400 animate-spin"></div>
-                <i data-lucide="film" class="w-6 h-6 text-brand-400 absolute inset-0 m-auto animate-pulse"></i>
+        <!-- Smooth Skeleton Loading State (Zero Layout Shift) -->
+        <div id="skeletonLoader" class="hidden flex flex-col gap-3">
+            <div class="glass-panel rounded-xl p-3 flex items-center justify-between gap-3">
+                <div class="h-4 w-36 rounded skeleton"></div>
+                <div class="h-6 w-24 rounded-lg skeleton"></div>
             </div>
-            <div>
-                <h3 class="text-lg font-bold text-white mb-1">Extracting Direct HLS Stream</h3>
-                <p class="text-xs text-slate-400">Connecting to high-speed CDN nodes & generating master playlist...</p>
+            <div class="w-full aspect-video rounded-2xl overflow-hidden skeleton border border-dark-border flex flex-col items-center justify-center gap-3">
+                <div class="w-14 h-14 rounded-full border-4 border-slate-700 border-t-brand-400 animate-spin"></div>
+                <p class="text-xs font-semibold text-slate-300 tracking-wide">Connecting to CDN Nodes & Resolving Stream...</p>
             </div>
-        </div>        <!-- Video Player Display Container -->
+            <div class="glass-panel rounded-2xl p-5 flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="w-full md:w-2/3 flex flex-col gap-2.5">
+                    <div class="h-5 w-3/4 rounded skeleton"></div>
+                    <div class="flex gap-2">
+                        <div class="h-4 w-20 rounded skeleton"></div>
+                        <div class="h-4 w-28 rounded skeleton"></div>
+                    </div>
+                </div>
+                <div class="flex gap-2 w-full md:w-auto">
+                    <div class="h-10 w-32 rounded-xl skeleton"></div>
+                    <div class="h-10 w-28 rounded-xl skeleton"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Player Display Container -->
         <section id="playerSection" class="{% if not initial_data %}hidden{% endif %} flex flex-col gap-3">
             
-            <!-- Player Toolbar -->
+            <!-- Player Toolbar & Speed Pills -->
             <div class="glass-panel rounded-xl px-4 py-2.5 border border-dark-border flex flex-wrap items-center justify-between gap-3 text-xs">
                 <div class="flex items-center gap-2">
                     <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span>
-                    <span class="font-semibold text-white">Stream Route:</span>
-                    <button id="streamRouteBtn" title="Click to switch between Direct CDN and Global Cloud Proxy (Bypasses Regional ISP blocks)" class="text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition">
+                    <span class="font-semibold text-white">Route:</span>
+                    <button id="streamRouteBtn" title="Switch between Direct CDN and Global Cloud Proxy (Bypasses Regional ISP blocks)" class="text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 active:scale-95 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition">
                         <i data-lucide="zap" id="streamRouteIcon" class="w-3.5 h-3.5"></i>
                         <span id="streamRouteLabel">⚡ Direct CDN (Fast)</span>
                     </button>
                 </div>
 
+                <!-- Floating Quick Speed Pills -->
+                <div class="flex items-center gap-1.5 bg-dark-bg/80 border border-dark-border rounded-lg p-1">
+                    <span class="text-[10px] text-slate-500 px-1 font-medium hidden sm:inline">Speed:</span>
+                    <button onclick="setQuickSpeed(1)" class="speed-pill px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-600 text-white transition" data-speed="1">1x</button>
+                    <button onclick="setQuickSpeed(1.25)" class="speed-pill px-2 py-0.5 rounded text-[11px] font-semibold text-slate-400 hover:text-white transition" data-speed="1.25">1.25x</button>
+                    <button onclick="setQuickSpeed(1.5)" class="speed-pill px-2 py-0.5 rounded text-[11px] font-semibold text-slate-400 hover:text-white transition" data-speed="1.5">1.5x</button>
+                    <button onclick="setQuickSpeed(2)" class="speed-pill px-2 py-0.5 rounded text-[11px] font-semibold text-slate-400 hover:text-white transition" data-speed="2">2x</button>
+                </div>
+
                 <div class="flex items-center gap-2">
-                    <button id="theaterBtn" title="Toggle Theater Mode" class="px-3 py-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-300 hover:text-white transition flex items-center gap-1.5">
-                        <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-brand-400"></i>
-                        <span>Theater Mode</span>
+                    <button id="pipBtn" title="Picture in Picture (P)" class="px-2.5 py-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-300 hover:text-white active:scale-95 transition flex items-center gap-1">
+                        <i data-lucide="picture-in-picture" class="w-3.5 h-3.5 text-brand-400"></i>
+                        <span class="hidden sm:inline">PiP</span>
                     </button>
-                    <button id="reloadPlayerBtn" title="Reload Video" class="p-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-400 hover:text-white transition">
+                    <button id="theaterBtn" title="Cinema Theater Mode (T)" class="px-2.5 py-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-300 hover:text-white active:scale-95 transition flex items-center gap-1">
+                        <i data-lucide="maximize-2" class="w-3.5 h-3.5 text-brand-400"></i>
+                        <span class="hidden sm:inline">Theater</span>
+                    </button>
+                    <button id="reloadPlayerBtn" title="Reload Video" class="p-1.5 bg-dark-bg hover:bg-slate-800 border border-dark-border rounded-lg text-slate-400 hover:text-white active:scale-95 transition">
                         <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
                     </button>
                 </div>
             </div>
 
             <!-- Player Wrapper (16:9 responsive) -->
-            <div id="playerWrapper" class="relative bg-black rounded-2xl overflow-hidden border border-dark-border shadow-player">
+            <div id="playerWrapper" class="relative bg-black rounded-2xl overflow-hidden border border-dark-border shadow-player transition-all duration-300">
                 
                 <!-- Native HTML5 Video Element -->
                 <div id="nativePlayerContainer" class="w-full aspect-video bg-black flex items-center justify-center">
@@ -338,7 +419,7 @@
             </div>
 
             <!-- Metadata & Action Toolbar -->
-            <div class="glass-panel rounded-2xl p-5 border border-dark-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="glass-panel rounded-2xl p-4 sm:p-5 border border-dark-border flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div class="flex-1 min-w-0">
                     <h2 id="videoTitle" class="text-base sm:text-lg font-bold text-white tracking-tight break-words mb-2">
                         🎬 {{ initial_data.title if initial_data else 'TeraBox Video Stream' }}
@@ -354,7 +435,7 @@
                         </span>
                         <span class="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-brand-950/60 text-brand-400 border border-brand-800/50">
                             <i data-lucide="shield-check" class="w-3.5 h-3.5"></i>
-                            <span>Cloudflare Bypassed</span>
+                            <span>Bypassed</span>
                         </span>
                     </div>
                 </div>
@@ -365,16 +446,16 @@
                         id="downloadBtn" 
                         href="{{ initial_data.download_url if initial_data and initial_data.download_url else '#' }}" 
                         target="_blank"
-                        class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-glow transition flex items-center gap-2 text-xs sm:text-sm {% if not initial_data or not initial_data.download_url %}hidden{% endif %}"
+                        class="bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold px-5 py-2.5 rounded-xl shadow-glow active:scale-95 transition flex items-center gap-2 text-xs sm:text-sm {% if not initial_data or not initial_data.download_url %}hidden{% endif %}"
                     >
                         <i data-lucide="download" class="w-4 h-4"></i>
                         <span>Download HD File</span>
                     </a>
-                    <button id="copyStreamUrlBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
+                    <button id="copyStreamUrlBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 active:scale-95 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
                         <i data-lucide="copy" class="w-4 h-4 text-brand-400"></i>
-                        <span>Copy Stream Link</span>
+                        <span>Copy Stream</span>
                     </button>
-                    <button id="copyShareBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
+                    <button id="copyShareBtn" class="px-3.5 py-2.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 active:scale-95 text-slate-200 border border-dark-border hover:border-slate-600 transition flex items-center gap-1.5">
                         <i data-lucide="share-2" class="w-4 h-4 text-indigo-400"></i>
                         <span>Share</span>
                     </button>
@@ -388,15 +469,15 @@
                         <i data-lucide="download-cloud" class="w-5 h-5 text-emerald-400"></i>
                         <h3 class="font-heading font-bold text-base text-white">Download Formats & Resolutions</h3>
                     </div>
-                    <span class="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 px-2.5 py-0.5 rounded-full font-semibold">1-Click High-Speed Attachment</span>
+                    <span class="text-[11px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/40 px-2.5 py-0.5 rounded-full font-semibold">1-Click High-Speed</span>
                 </div>
                 <div id="formatGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                     {% if initial_data and initial_data.download_formats %}
                     {% for df in initial_data.download_formats %}
-                    <a href="{{ df.download_url }}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+                    <a href="{{ df.download_url }}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 active:scale-95 transition flex items-center justify-between gap-2 group">
                         <div class="flex items-center gap-2.5 min-w-0">
                             <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
-                                <i data-lucide="download" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
+                                <i data-lucide="${(df.quality && df.quality.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
                             </div>
                             <div class="min-w-0">
                                 <p class="text-xs font-semibold text-white truncate">{{ df.quality }}</p>
@@ -419,7 +500,7 @@
                 <div id="playlistGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {% if initial_data and initial_data.playlist %}
                     {% for item in initial_data.playlist %}
-                    <div onclick="playPlaylistItem({{ item.index }})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 transition cursor-pointer flex items-center gap-3 group">
+                    <div onclick="playPlaylistItem({{ item.index }})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 hover:bg-slate-800/40 active:scale-95 transition cursor-pointer flex items-center gap-3 group">
                         <div class="w-16 h-12 bg-black rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
                             <img src="{{ item.thumbnail or '' }}" onerror="this.style.display='none'" class="w-full h-full object-cover">
                             <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 flex items-center justify-center transition">
@@ -439,17 +520,25 @@
         </section>
 
         <!-- Watchlist / Recent Links History Modal / Drawer -->
-        <section id="historySection" class="glass-panel rounded-2xl p-6 border border-dark-border">
-            <div class="flex items-center justify-between mb-4">
+        <section id="historySection" class="glass-panel rounded-2xl p-5 sm:p-6 border border-dark-border">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
                 <div class="flex items-center gap-2">
                     <i data-lucide="history" class="w-5 h-5 text-brand-400"></i>
                     <h3 class="font-heading font-bold text-lg text-white">Recent Watchlist</h3>
                     <span id="historyCount" class="text-xs bg-dark-bg text-slate-400 px-2 py-0.5 rounded-full border border-dark-border">0</span>
                 </div>
-                <button id="clearHistoryBtn" class="text-xs text-slate-400 hover:text-rose-400 transition flex items-center gap-1">
-                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    <span>Clear All</span>
-                </button>
+                <div class="flex items-center gap-2">
+                    <input 
+                        type="text" 
+                        id="historyFilter" 
+                        placeholder="Filter watchlist..." 
+                        class="bg-dark-bg border border-dark-border rounded-lg px-3 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 w-36 sm:w-48"
+                    />
+                    <button id="clearHistoryBtn" class="text-xs text-slate-400 hover:text-rose-400 transition flex items-center gap-1">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span>Clear All</span>
+                    </button>
+                </div>
             </div>
 
             <div id="historyList" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -457,17 +546,58 @@
             </div>
             <div id="noHistoryMessage" class="text-center py-8 text-slate-500 text-sm">
                 <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 opacity-50"></i>
-                No recently streamed videos yet. Paste any TeraBox link above to start!
+                No recently streamed videos yet. Paste any link above to start!
             </div>
         </section>
 
     </main>
 
+    <!-- Keyboard Shortcuts Modal -->
+    <div id="shortcutsModal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+        <div class="glass-panel rounded-2xl max-w-md w-full p-6 border border-dark-border shadow-2xl relative">
+            <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="keyboard" class="w-5 h-5 text-brand-400"></i>
+                    <h3 class="font-heading font-bold text-lg text-white">Keyboard Shortcuts</h3>
+                </div>
+                <button onclick="toggleShortcutsModal()" class="p-1 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-xs">
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Play / Pause</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">Space</kbd>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Fullscreen</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">F</kbd>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Theater Mode</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">T</kbd>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Mute / Unmute</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">M</kbd>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Seek ±10s</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">← / →</kbd>
+                </div>
+                <div class="flex items-center justify-between p-2 rounded-lg bg-dark-bg/60 border border-dark-border">
+                    <span class="text-slate-400">Picture in Picture</span>
+                    <kbd class="px-2 py-0.5 rounded bg-dark-card border border-dark-border font-mono text-brand-400 font-semibold">P</kbd>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Footer -->
     <footer class="w-full border-t border-dark-border py-6 mt-12 text-center text-xs text-slate-500">
         <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div class="flex items-center gap-2">
-                <span>⚡ TeraStream Pro Engine</span>
+                <span>⚡ TeraStream Pro Turbo Engine</span>
                 <span>•</span>
                 <span>Direct High-Speed HLS Streaming Architecture</span>
             </div>
@@ -476,7 +606,7 @@
     </footer>
 
     <!-- Toast Notification -->
-    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 glass-panel border border-brand-500/40 text-white px-4 py-3 rounded-xl shadow-glow flex items-center gap-3 text-xs sm:text-sm font-medium">
+    <div id="toast" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 glass-panel border border-brand-500/40 text-white px-4 py-3 rounded-xl shadow-glow flex items-center gap-3 text-xs sm:text-sm font-medium pointer-events-none">
         <i data-lucide="check" class="w-4 h-4 text-emerald-400"></i>
         <span id="toastMessage">Link copied to clipboard!</span>
     </div>
@@ -500,7 +630,7 @@
         const submitBtn = document.getElementById('submitBtn');
         const errorBox = document.getElementById('errorBox');
         const errorMessage = document.getElementById('errorMessage');
-        const loadingState = document.getElementById('loadingState');
+        const skeletonLoader = document.getElementById('skeletonLoader');
         const playerSection = document.getElementById('playerSection');
         const nativePlayerContainer = document.getElementById('nativePlayerContainer');
         const iframePlayerContainer = document.getElementById('iframePlayerContainer');
@@ -512,6 +642,7 @@
         const copyStreamUrlBtn = document.getElementById('copyStreamUrlBtn');
         const copyShareBtn = document.getElementById('copyShareBtn');
         const theaterBtn = document.getElementById('theaterBtn');
+        const pipBtn = document.getElementById('pipBtn');
         const reloadPlayerBtn = document.getElementById('reloadPlayerBtn');
         const mainContainer = document.getElementById('mainContainer');
         const playlistSection = document.getElementById('playlistSection');
@@ -519,6 +650,8 @@
         const playlistCount = document.getElementById('playlistCount');
         const toast = document.getElementById('toast');
         const toastMessage = document.getElementById('toastMessage');
+        const shortcutsModal = document.getElementById('shortcutsModal');
+        const shortcutsBtn = document.getElementById('shortcutsBtn');
 
         function showToast(msg) {
             toastMessage.textContent = msg;
@@ -537,10 +670,10 @@
 
         function updateRouteUI() {
             if (useProxyStream) {
-                streamRouteBtn.className = "text-xs text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-1 rounded-lg border border-indigo-500/30 font-semibold flex items-center gap-1.5 transition";
+                streamRouteBtn.className = "text-xs text-indigo-400 bg-indigo-500/10 hover:bg-indigo-500/20 active:scale-95 px-2.5 py-1 rounded-lg border border-indigo-500/30 font-semibold flex items-center gap-1.5 transition";
                 streamRouteLabel.textContent = "🛡️ Global Cloud Proxy (Active)";
             } else {
-                streamRouteBtn.className = "text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition";
+                streamRouteBtn.className = "text-xs text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 active:scale-95 px-2.5 py-1 rounded-lg border border-brand-500/30 font-semibold flex items-center gap-1.5 transition";
                 streamRouteLabel.textContent = "⚡ Direct CDN (Fast)";
             }
         }
@@ -551,12 +684,12 @@
             updateRouteUI();
             const targetStream = (useProxyStream && currentData.proxy_stream_url) ? currentData.proxy_stream_url : currentData.stream_url;
             if (targetStream) {
-                loadHlsStream(targetStream, currentData.thumbnail);
-                showToast(useProxyStream ? 'Switched to Global Cloud Proxy (Bypasses Geo-Blocks)' : 'Switched to Direct CDN');
+                loadHlsStream(targetStream, currentData.thumbnail, currentData.is_hls);
+                showToast(useProxyStream ? 'Switched to Global Cloud Proxy' : 'Switched to Direct CDN');
             }
         });
 
-        // Initialize Plyr
+        // Initialize Plyr with optimized performance
         function initPlyr() {
             if (!plyrPlayer) {
                 plyrPlayer = new Plyr(nativeVideo, {
@@ -572,8 +705,33 @@
                     autoplay: true,
                     keyboard: { focused: true, global: true }
                 });
+
+                plyrPlayer.on('ratechange', () => {
+                    updateActiveSpeedPills(plyrPlayer.speed);
+                });
             }
         }
+
+        function updateActiveSpeedPills(speed) {
+            document.querySelectorAll('.speed-pill').forEach(pill => {
+                const s = parseFloat(pill.getAttribute('data-speed'));
+                if (s === speed) {
+                    pill.className = "speed-pill px-2 py-0.5 rounded text-[11px] font-semibold bg-brand-600 text-white transition";
+                } else {
+                    pill.className = "speed-pill px-2 py-0.5 rounded text-[11px] font-semibold text-slate-400 hover:text-white transition";
+                }
+            });
+        }
+
+        window.setQuickSpeed = function(speed) {
+            if (plyrPlayer) {
+                plyrPlayer.speed = speed;
+            } else if (nativeVideo) {
+                nativeVideo.playbackRate = speed;
+            }
+            updateActiveSpeedPills(speed);
+            showToast(`Speed set to ${speed}x`);
+        };
 
         // Play Video Stream (HLS or Progressive MP4)
         function loadHlsStream(streamUrl, posterUrl, isHls = false) {
@@ -613,7 +771,6 @@
                     if (data.fatal) {
                         switch (data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                // Auto-switch to cloud proxy if direct CDN is geo-blocked by local ISP
                                 if (!useProxyStream && currentData && currentData.proxy_stream_url) {
                                     useProxyStream = true;
                                     updateRouteUI();
@@ -637,7 +794,6 @@
                 initPlyr();
                 nativeVideo.play().catch(() => {});
             } else if (streamUrl) {
-                // Direct MP4 / Progressive Stream / YouTube Stream
                 nativeVideo.src = streamUrl;
                 initPlyr();
                 nativeVideo.play().catch(() => {});
@@ -648,7 +804,6 @@
             }
         }
 
-        // Fallback to Iframe Mirror
         function loadIframeMirror(embedUrl) {
             if (hlsInstance) {
                 hlsInstance.destroy();
@@ -666,6 +821,21 @@
             nativePlayerContainer.classList.add('hidden');
             iframePlayerContainer.classList.remove('hidden');
             videoIframe.src = embedUrl;
+        }
+
+        // Picture-in-Picture
+        if (pipBtn) {
+            pipBtn.addEventListener('click', async () => {
+                try {
+                    if (document.pictureInPictureElement) {
+                        await document.exitPictureInPicture();
+                    } else if (nativeVideo && document.pictureInPictureEnabled) {
+                        await nativeVideo.requestPictureInPicture();
+                    }
+                } catch (e) {
+                    showToast('PiP not supported or video not ready');
+                }
+            });
         }
 
         // Theater Mode
@@ -697,6 +867,27 @@
             showToast('Shareable Link copied!');
         });
 
+        // Shortcuts modal
+        window.toggleShortcutsModal = function() {
+            shortcutsModal.classList.toggle('hidden');
+        };
+        shortcutsBtn.addEventListener('click', toggleShortcutsModal);
+        shortcutsModal.addEventListener('click', (e) => {
+            if (e.target === shortcutsModal) toggleShortcutsModal();
+        });
+
+        // Global Keyboard Hotkeys
+        document.addEventListener('keydown', (e) => {
+            if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+            if (e.key === '?' || (e.shiftKey && e.key === '/')) {
+                toggleShortcutsModal();
+            } else if (e.key === 't' || e.key === 'T') {
+                theaterBtn.click();
+            } else if (e.key === 'p' || e.key === 'P') {
+                if (pipBtn) pipBtn.click();
+            }
+        });
+
         // Render Multi-Quality Download Formats
         function renderDownloadFormats(formats) {
             const formatSection = document.getElementById('formatSection');
@@ -706,7 +897,7 @@
                 return;
             }
             formatGrid.innerHTML = formats.map(df => `
-                <a href="${df.download_url}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+                <a href="${df.download_url}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 active:scale-95 transition flex items-center justify-between gap-2 group">
                     <div class="flex items-center gap-2.5 min-w-0">
                         <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
                             <i data-lucide="${(df.quality && df.quality.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
@@ -734,13 +925,17 @@
         function saveToHistory(item) {
             let list = getHistory().filter(x => x.surl !== item.surl);
             list.unshift(item);
-            if (list.length > 20) list = list.slice(0, 20);
+            if (list.length > 30) list = list.slice(0, 30);
             localStorage.setItem(HISTORY_KEY, JSON.stringify(list));
             renderHistory();
         }
 
-        function renderHistory() {
-            const list = getHistory();
+        function renderHistory(filterText = '') {
+            let list = getHistory();
+            if (filterText) {
+                const q = filterText.toLowerCase();
+                list = list.filter(x => (x.title && x.title.toLowerCase().includes(q)) || (x.surl && x.surl.toLowerCase().includes(q)));
+            }
             document.getElementById('historyCount').textContent = list.length;
             const historyList = document.getElementById('historyList');
             const noHistoryMessage = document.getElementById('noHistoryMessage');
@@ -763,7 +958,7 @@
                         <h5 class="text-xs font-semibold text-white truncate" title="${item.title}">${item.title}</h5>
                     </div>
                     <div class="flex items-center gap-2 pt-2 border-t border-dark-border/60">
-                        <button onclick="playFromHistory('${item.surl}', '${encodeURIComponent(item.originalUrl || '')}')" class="flex-1 bg-brand-600/30 hover:bg-brand-600 text-brand-300 hover:text-white py-1.5 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
+                        <button onclick="playFromHistory('${item.surl}', '${encodeURIComponent(item.originalUrl || '')}')" class="flex-1 bg-brand-600/30 hover:bg-brand-600 active:scale-95 text-brand-300 hover:text-white py-1.5 px-3 rounded-lg text-xs font-medium transition flex items-center justify-center gap-1.5">
                             <i data-lucide="play" class="w-3.5 h-3.5 fill-current"></i>
                             <span>Play</span>
                         </button>
@@ -785,6 +980,7 @@
         window.playFromHistory = function(surl, encodedUrl) {
             const url = decodeURIComponent(encodedUrl) || `https://teraboxshare.com/s/1${surl}`;
             urlInput.value = url;
+            detectAndSwitchMode(url);
             streamForm.dispatchEvent(new Event('submit'));
         };
 
@@ -792,6 +988,10 @@
             localStorage.removeItem(HISTORY_KEY);
             renderHistory();
             showToast('Watchlist cleared');
+        });
+
+        document.getElementById('historyFilter').addEventListener('input', (e) => {
+            renderHistory(e.target.value);
         });
 
         // Multi-Video Playlist Selection
@@ -870,24 +1070,6 @@
                 icon: 'flame',
                 iconColor: 'text-amber-400'
             },
-            diskwala: {
-                title: 'DiskWala <span class="bg-gradient-to-r from-purple-400 via-pink-400 to-rose-400 bg-clip-text text-transparent">Stream & Video Downloader</span>',
-                subtitle: 'Stream DiskWala shared videos instantly in full HD, bypass Cloudflare bot challenges using client browser acceleration, and download directly.',
-                badges: `
-                    <span class="text-slate-500 font-medium">Supports:</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-purple-400 font-mono font-medium">diskwala.com/watch</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-pink-400 font-mono font-medium">diskwala.net</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-rose-400 font-mono font-medium">disk.wlc.pw</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-amber-400 font-mono font-medium">diskwala.org</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">HLS & MP4</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">Cloudflare Safe</span>
-                `,
-                placeholder: 'Paste DiskWala link (e.g. diskwala.com/watch/... or diskwala.net/...)',
-                hint: '💾 Tip: Client-side browser resolver automatically handles Cloudflare verification for instant playback.',
-                btnText: 'Stream DiskWala',
-                icon: 'hard-drive',
-                iconColor: 'text-purple-400'
-            },
             direct: {
                 title: 'Direct Video & <span class="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">M3U8 HLS Player</span>',
                 subtitle: 'Paste any direct MP4, M3U8, WebM, or HLS livestream URL for instant ad-free playback in HD theater mode.',
@@ -906,17 +1088,29 @@
             }
         };
 
+        // Smart Auto-Mode Detection based on URL content
+        function detectAndSwitchMode(url) {
+            const low = url.toLowerCase();
+            if (low.includes('youtube.com') || low.includes('youtu.be')) {
+                if (activeMode !== 'youtube') switchSearchMode('youtube');
+            } else if (low.includes('flare') || low.includes('cashsnap') || low.includes('hugebox')) {
+                if (activeMode !== 'flare') switchSearchMode('flare');
+            } else if (low.includes('.m3u8') || low.endsWith('.mp4') || low.endsWith('.webm') || low.endsWith('.mov')) {
+                if (activeMode !== 'direct') switchSearchMode('direct');
+            } else if (low.includes('terabox') || low.includes('1024tera') || low.includes('terashare') || low.includes('terafileshare')) {
+                if (activeMode !== 'terabox') switchSearchMode('terabox');
+            }
+        }
+
         window.switchSearchMode = function(mode) {
             if (!modeConfigs[mode]) return;
             activeMode = mode;
             const cfg = modeConfigs[mode];
 
-            // Update Tab Styles
             const tabs = {
                 terabox: document.getElementById('tabTerabox'),
                 youtube: document.getElementById('tabYoutube'),
                 flare: document.getElementById('tabFlare'),
-                diskwala: document.getElementById('tabDiskwala'),
                 direct: document.getElementById('tabDirect')
             };
 
@@ -924,22 +1118,19 @@
                 if (!tabs[k]) return;
                 if (k === mode) {
                     if (k === 'terabox') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow";
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-glow shrink-0";
                     } else if (k === 'youtube') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-glow";
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-glow shrink-0";
                     } else if (k === 'flare') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow";
-                    } else if (k === 'diskwala') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-glow";
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow shrink-0";
                     } else {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow";
+                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow shrink-0";
                     }
                 } else {
-                    tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80";
+                    tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80 shrink-0";
                 }
             });
 
-            // Update Hero and Inputs
             document.getElementById('heroTitle').innerHTML = cfg.title;
             document.getElementById('heroSubtitle').textContent = cfg.subtitle;
             document.getElementById('heroBadges').innerHTML = cfg.badges;
@@ -957,15 +1148,15 @@
             lucide.createIcons();
         };
 
-        // Form Submit Handler
+        // Form Submit Handler with Optimistic Skeleton UI
         streamForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const inputVal = urlInput.value.replace(/\s+/g, '').trim();
             if (!inputVal) return;
 
             errorBox.classList.add('hidden');
-            loadingState.classList.remove('hidden');
             playerSection.classList.add('hidden');
+            skeletonLoader.classList.remove('hidden');
             submitBtn.disabled = true;
 
             try {
@@ -1002,7 +1193,7 @@
                 if (currentPlaylist.length > 1) {
                     playlistCount.textContent = currentPlaylist.length;
                     playlistGrid.innerHTML = currentPlaylist.map(item => `
-                        <div onclick="playPlaylistItem(${item.index})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 transition cursor-pointer flex items-center gap-3 group">
+                        <div onclick="playPlaylistItem(${item.index})" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-brand-500/50 hover:bg-slate-800/40 active:scale-95 transition cursor-pointer flex items-center gap-3 group">
                             <div class="w-16 h-12 bg-black rounded-lg overflow-hidden shrink-0 relative flex items-center justify-center">
                                 <img src="${item.thumbnail || ''}" onerror="this.style.display='none'" class="w-full h-full object-cover">
                                 <div class="absolute inset-0 bg-black/40 group-hover:bg-black/10 flex items-center justify-center transition">
@@ -1020,7 +1211,8 @@
                     playlistSection.classList.add('hidden');
                 }
 
-                // Load Video Stream
+                // Smoothly show player
+                skeletonLoader.classList.add('hidden');
                 playerSection.classList.remove('hidden');
 
                 if (data.stream_url) {
@@ -1035,7 +1227,7 @@
                     surl: data.surl,
                     title: data.title,
                     size: data.size,
-                    mode: data.mode || (inputVal.includes('youtu') ? 'youtube' : (inputVal.includes('diskwala') ? 'diskwala' : 'terabox')),
+                    mode: data.mode || (inputVal.includes('youtu') ? 'youtube' : 'terabox'),
                     originalUrl: inputVal,
                     timestamp: Date.now()
                 });
@@ -1044,19 +1236,21 @@
                 playerSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
             } catch (err) {
+                skeletonLoader.classList.add('hidden');
                 errorMessage.textContent = err.message;
                 errorBox.classList.remove('hidden');
             } finally {
-                loadingState.classList.add('hidden');
                 submitBtn.disabled = false;
                 lucide.createIcons();
             }
         });
 
-        // Setup input helpers
+        // Setup input helpers with real-time auto detection
         urlInput.addEventListener('input', () => {
-            clearBtn.classList.toggle('hidden', !urlInput.value);
+            const val = urlInput.value;
+            clearBtn.classList.toggle('hidden', !val);
             errorBox.classList.add('hidden');
+            if (val) detectAndSwitchMode(val);
         });
 
         clearBtn.addEventListener('click', () => {
@@ -1071,6 +1265,7 @@
                 if (text) {
                     urlInput.value = text.replace(/\s+/g, '');
                     clearBtn.classList.remove('hidden');
+                    detectAndSwitchMode(urlInput.value);
                     urlInput.focus();
                 }
             } catch (e) {

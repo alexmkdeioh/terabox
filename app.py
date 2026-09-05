@@ -1554,6 +1554,16 @@ def admin_clear():
     return redirect(url_for('admin_dashboard'))
 
 
+@app.after_request
+def add_performance_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    if request.path.startswith('/static/'):
+        response.headers['Cache-Control'] = 'public, max-age=86400, immutable'
+    elif request.path == '/' or request.path.startswith('/play/'):
+        response.headers['Cache-Control'] = 'public, max-age=60'
+    return response
+
+
 if __name__ == '__main__':
     import sys
     if hasattr(sys.stdout, 'reconfigure'):
