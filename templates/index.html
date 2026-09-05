@@ -325,7 +325,6 @@
                         id="videoIframe"
                         src="" 
                         class="w-full h-full border-0 absolute inset-0"
-                        referrerpolicy="no-referrer"
                         allowfullscreen="true" 
                         webkitallowfullscreen="true" 
                         mozallowfullscreen="true" 
@@ -653,6 +652,11 @@
             }
             if (nativeVideo) {
                 nativeVideo.pause();
+            }
+
+            if (embedUrl && embedUrl.includes('youtube')) {
+                const joinChar = embedUrl.includes('?') ? '&' : '?';
+                embedUrl = `${embedUrl}${joinChar}enablejsapi=1&origin=${encodeURIComponent(window.location.origin)}`;
             }
 
             nativePlayerContainer.classList.add('hidden');

@@ -554,40 +554,65 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
             "mode": "youtube"
         }
 
-    ydl_opts_all = {
-        'quiet': True,
-        'no_warnings': True,
-        'skip_download': True,
-        'noplaylist': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'android_vr', 'tv_embedded']
-            }
+    vid = video_id or "youtube"
+    title = f"YouTube Video {vid}"
+    duration_str = "HD Video"
+    uploader = "YouTube"
+    views_str = ""
+    thumbnail = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid != "youtube" else None
+    formats = []
+
+    # 1. Extract progressive format (format 18) via android client
+    try:
+        ydl_opts_prog = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android']}}
         }
-    }
+        with yt_dlp.YoutubeDL(ydl_opts_prog) as ydl_prog:
+            info = ydl_prog.extract_info(target_url, download=False)
+            if info:
+                vid = info.get('id') or vid
+                title = info.get('title') or title
+                duration_secs = info.get('duration') or 0
+                if duration_secs >= 3600:
+                    duration_str = f"{int(duration_secs // 3600):02d}:{int((duration_secs % 3600) // 60):02d}:{int(duration_secs % 60):02d}"
+                elif duration_secs > 0:
+                    duration_str = f"{int(duration_secs // 60):02d}:{int(duration_secs % 60):02d}"
+                uploader = info.get('uploader') or info.get('channel') or uploader
+                views = info.get('view_count')
+                if views:
+                    views_str = f"{views:,} views"
+                thumbnail = info.get('thumbnail') or thumbnail
+                formats.extend(info.get('formats', []))
+    except Exception as e:
+        print("Android extraction notice:", e)
+
+    # 2. Extract HD and Audio formats via android_creator
+    try:
+        ydl_opts_hd = {
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android_creator']}}
+        }
+        with yt_dlp.YoutubeDL(ydl_opts_hd) as ydl_hd:
+            info_hd = ydl_hd.extract_info(target_url, download=False)
+            if info_hd and info_hd.get('formats'):
+                formats.extend(info_hd['formats'])
+                if title == f"YouTube Video {vid}" and info_hd.get('title'):
+                    title = info_hd['title']
+    except Exception as e:
+        print("Android creator extraction notice:", e)
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts_all) as ydl:
-            info = ydl.extract_info(target_url, download=False)
-            if not info:
-                raise Exception("No video info returned")
-
-            vid = info.get('id') or video_id or "youtube"
-            title = info.get('title') or f"YouTube Video {vid}"
-            duration_secs = info.get('duration') or 0
-            if duration_secs >= 3600:
-                duration_str = f"{int(duration_secs // 3600):02d}:{int((duration_secs % 3600) // 60):02d}:{int(duration_secs % 60):02d}"
-            elif duration_secs > 0:
-                duration_str = f"{int(duration_secs // 60):02d}:{int(duration_secs % 60):02d}"
-            else:
-                duration_str = "HD Video"
-
-            uploader = info.get('uploader') or info.get('channel') or "YouTube"
-            views = info.get('view_count')
-            views_str = f"{views:,} views" if views else ""
-            thumbnail = info.get('thumbnail') or f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
-
-            formats = list(info.get('formats', []) or [])
+        if not formats and not thumbnail:
+            raise Exception("No formats or metadata retrieved from YouTube")
 
             # 1. Progressive formats (both video and audio)
             prog_formats = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
@@ -1030,31 +1055,42 @@ def youtube_download():
 
     target_url = None
     ext = "mp4"
+    formats = []
     try:
-        ydl_opts = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'noplaylist': True,
-            'extractor_args': {'youtube': {'player_client': ['android', 'ios', 'web']}}
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
-            formats = info.get('formats', [])
-            matched_format = None
-            if itag:
-                for f in formats:
-                    if str(f.get('format_id')) == str(itag):
-                        matched_format = f
-                        break
-            if not matched_format:
-                # Find best progressive format
-                progs = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
-                matched_format = progs[0] if progs else (formats[-1] if formats else None)
+        # Try android client first
+        with yt_dlp.YoutubeDL({
+            'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
+            'format': None,
+            'extractor_args': {'youtube': {'player_client': ['android']}}
+        }) as ydl_and:
+            info_and = ydl_and.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+            if info_and and info_and.get('formats'):
+                formats.extend(info_and['formats'])
 
-            if matched_format:
-                target_url = matched_format.get('url')
-                ext = matched_format.get('ext', 'mp4')
+        # If specific itag requested and not in android formats, try android_creator
+        if itag and not any(str(f.get('format_id')) == str(itag) for f in formats):
+            with yt_dlp.YoutubeDL({
+                'quiet': True, 'no_warnings': True, 'skip_download': True, 'noplaylist': True,
+                'format': None,
+                'extractor_args': {'youtube': {'player_client': ['android_creator']}}
+            }) as ydl_hd:
+                info_hd = ydl_hd.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
+                if info_hd and info_hd.get('formats'):
+                    formats.extend(info_hd['formats'])
+
+        matched_format = None
+        if itag:
+            for f in formats:
+                if str(f.get('format_id')) == str(itag):
+                    matched_format = f
+                    break
+        if not matched_format:
+            progs = [f for f in formats if f.get('vcodec') != 'none' and f.get('acodec') != 'none' and f.get('url')]
+            matched_format = progs[0] if progs else (formats[-1] if formats else None)
+
+        if matched_format:
+            target_url = matched_format.get('url')
+            ext = matched_format.get('ext', 'mp4')
     except Exception as e:
         print("YouTube download extract error:", e)
 
