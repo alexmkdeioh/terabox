@@ -173,6 +173,13 @@ def init_db():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS app_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                ''')
                 cursor.execute("SELECT COUNT(*) FROM feed_sources")
                 if cursor.fetchone()[0] == 0:
                     cursor.execute('''
@@ -229,6 +236,13 @@ def init_db():
                         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS app_settings (
+                        key TEXT PRIMARY KEY,
+                        value TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
                 cursor.execute("SELECT COUNT(*) FROM feed_sources")
                 if cursor.fetchone()[0] == 0:
                     cursor.execute('''
@@ -241,6 +255,53 @@ def init_db():
         print("DB Init Error:", e)
 
 init_db()
+
+
+def get_app_setting(key, default=None):
+    """Fetches a single configuration setting by key from app_settings."""
+    try:
+        db_type, conn = get_db_connection()
+        val = default
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute("SELECT value FROM app_settings WHERE key = %s", (key,))
+            else:
+                cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
+            row = cursor.fetchone()
+            if row:
+                val = row[0] if isinstance(row, (tuple, list)) else (row.get('value') if hasattr(row, 'get') else row[0])
+        conn.close()
+        return val if val is not None else default
+    except Exception as e:
+        print(f"get_app_setting error for '{key}':", e)
+        return default
+
+
+def set_app_setting(key, value):
+    """Persists a key-value setting in app_settings across PostgreSQL and SQLite."""
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute('''
+                    INSERT INTO app_settings (key, value, updated_at)
+                    VALUES (%s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+                ''', (key, str(value)))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
+                    VALUES (?, ?, datetime('now'))
+                ''', (key, str(value)))
+            conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"set_app_setting error for '{key}':", e)
+        return False
+
 
 
 def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
@@ -2422,15 +2483,121 @@ def sync_feed_sources():
         return 0
 
 
-def _initial_feed_sync():
-    """Initializes feed sync asynchronously in background."""
-    time.sleep(2)
-    try:
-        sync_feed_sources()
-    except Exception as e:
-        print("Initial feed sync error:", e)
+AUTO_SYNC_LOCK = threading.Lock()
+AUTO_SYNC_STATE = {
+    "enabled": True,
+    "interval_minutes": 10,
+    "is_syncing": False,
+    "last_sync_timestamp": 0.0,
+    "last_status": "Ready",
+    "last_new_videos": 0,
+    "trigger_immediate": False,
+}
 
-threading.Thread(target=_initial_feed_sync, daemon=True).start()
+
+def get_auto_sync_info():
+    """Returns a serializable dictionary representing the current auto-sync status."""
+    with AUTO_SYNC_LOCK:
+        interval_mins = AUTO_SYNC_STATE.get("interval_minutes", 10)
+        interval_secs = max(60, interval_mins * 60)
+        last_ts = AUTO_SYNC_STATE.get("last_sync_timestamp", 0.0)
+        is_syncing = AUTO_SYNC_STATE.get("is_syncing", False)
+        enabled = AUTO_SYNC_STATE.get("enabled", True)
+
+        elapsed = time.time() - last_ts if last_ts > 0 else interval_secs
+        remaining_secs = max(0, int(interval_secs - elapsed)) if enabled else None
+
+        last_sync_str = "Never"
+        if last_ts > 0:
+            import datetime
+            last_sync_str = datetime.datetime.fromtimestamp(last_ts).strftime("%I:%M:%S %p")
+
+        return {
+            "enabled": enabled,
+            "interval_minutes": interval_mins,
+            "is_syncing": is_syncing,
+            "last_sync_timestamp": last_ts,
+            "last_sync_formatted": last_sync_str,
+            "next_sync_seconds": remaining_secs,
+            "last_status": AUTO_SYNC_STATE.get("last_status", "Ready"),
+            "last_new_videos": AUTO_SYNC_STATE.get("last_new_videos", 0),
+        }
+
+
+def _do_sync_step(reason="Auto Sync"):
+    """Executes a synchronization cycle across all active sources in a single-locked manner."""
+    with AUTO_SYNC_LOCK:
+        if AUTO_SYNC_STATE["is_syncing"]:
+            return 0
+        AUTO_SYNC_STATE["is_syncing"] = True
+        AUTO_SYNC_STATE["last_status"] = f"Syncing ({reason})..."
+
+    new_count = 0
+    err = None
+    try:
+        new_count = sync_feed_sources()
+    except Exception as e:
+        err = str(e)
+        print(f"[{reason}] Error syncing feed sources:", e)
+    finally:
+        with AUTO_SYNC_LOCK:
+            AUTO_SYNC_STATE["is_syncing"] = False
+            AUTO_SYNC_STATE["last_sync_timestamp"] = time.time()
+            AUTO_SYNC_STATE["last_new_videos"] = new_count
+            if err:
+                AUTO_SYNC_STATE["last_status"] = f"Error: {err[:60]}"
+            else:
+                AUTO_SYNC_STATE["last_status"] = f"Completed ({new_count} new)"
+            try:
+                set_app_setting("auto_sync_last_status", AUTO_SYNC_STATE["last_status"])
+                set_app_setting("auto_sync_last_timestamp", str(AUTO_SYNC_STATE["last_sync_timestamp"]))
+            except Exception:
+                pass
+    return new_count
+
+
+def _auto_sync_worker():
+    """Background daemon thread that runs periodic sync of all feed sources."""
+    time.sleep(3)
+    try:
+        stored_enabled = get_app_setting("auto_sync_enabled", "true")
+        stored_interval = get_app_setting("auto_sync_interval", "10")
+        with AUTO_SYNC_LOCK:
+            AUTO_SYNC_STATE["enabled"] = (str(stored_enabled).lower() == "true")
+            try:
+                AUTO_SYNC_STATE["interval_minutes"] = max(1, int(stored_interval))
+            except Exception:
+                AUTO_SYNC_STATE["interval_minutes"] = 10
+    except Exception as e:
+        print("Auto sync settings load error:", e)
+
+    # Initial boot sync
+    if AUTO_SYNC_STATE.get("enabled", True):
+        _do_sync_step("Startup Sync")
+
+    while True:
+        try:
+            time.sleep(5)
+            should_sync = False
+            with AUTO_SYNC_LOCK:
+                if AUTO_SYNC_STATE["trigger_immediate"]:
+                    AUTO_SYNC_STATE["trigger_immediate"] = False
+                    should_sync = True
+                elif AUTO_SYNC_STATE["enabled"] and not AUTO_SYNC_STATE["is_syncing"]:
+                    interval_secs = AUTO_SYNC_STATE["interval_minutes"] * 60
+                    elapsed = time.time() - AUTO_SYNC_STATE["last_sync_timestamp"]
+                    if elapsed >= interval_secs:
+                        should_sync = True
+
+            if should_sync:
+                _do_sync_step("Scheduled Auto Sync")
+        except Exception as e:
+            print("Auto sync worker loop error:", e)
+            time.sleep(10)
+
+
+threading.Thread(target=_auto_sync_worker, daemon=True).start()
+
 
 
 def _start_telegram_listener():
@@ -2614,7 +2781,7 @@ def admin_dashboard():
     except Exception as e:
         print("Admin fetch error:", e)
 
-    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources, telegram_auth=get_telegram_auth())
+    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources, telegram_auth=get_telegram_auth(), auto_sync=get_auto_sync_info())
 
 
 @app.route('/admin/api/telegram/status', methods=['GET'])
@@ -2930,10 +3097,61 @@ def admin_api_sync_sources():
     if not session.get('is_admin'):
         return jsonify({"success": False, "error": "Unauthorized"}), 401
     try:
-        new_count = sync_feed_sources()
-        return jsonify({"success": True, "new_count": new_count, "message": f"Sync completed! {new_count} new video(s) added."})
+        with AUTO_SYNC_LOCK:
+            if AUTO_SYNC_STATE.get("is_syncing"):
+                return jsonify({"success": False, "error": "A sync is already in progress. Please wait a few seconds."}), 429
+        new_count = _do_sync_step("Manual Sync")
+        info = get_auto_sync_info()
+        return jsonify({
+            "success": True,
+            "new_count": new_count,
+            "message": f"Sync completed! {new_count} new video(s) added.",
+            "auto_sync": info
+        })
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/sources/auto_sync', methods=['GET', 'POST'])
+def admin_api_auto_sync():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or request.form or {}
+        enabled_to_save = None
+        interval_to_save = None
+        with AUTO_SYNC_LOCK:
+            if "enabled" in data:
+                enabled_to_save = bool(data["enabled"])
+                AUTO_SYNC_STATE["enabled"] = enabled_to_save
+
+            if "interval_minutes" in data:
+                try:
+                    interval_to_save = max(1, min(1440, int(data["interval_minutes"])))
+                    AUTO_SYNC_STATE["interval_minutes"] = interval_to_save
+                except (ValueError, TypeError):
+                    pass
+
+            if data.get("sync_now"):
+                AUTO_SYNC_STATE["trigger_immediate"] = True
+
+        if enabled_to_save is not None:
+            set_app_setting("auto_sync_enabled", str(enabled_to_save).lower())
+        if interval_to_save is not None:
+            set_app_setting("auto_sync_interval", str(interval_to_save))
+
+        return jsonify({
+            "success": True,
+            "message": "Auto-sync settings updated successfully.",
+            **get_auto_sync_info()
+        })
+
+    return jsonify({
+        "success": True,
+        **get_auto_sync_info()
+    })
+
 
 
 @app.route('/admin/api/sources', methods=['GET'])

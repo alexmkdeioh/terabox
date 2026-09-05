@@ -190,6 +190,21 @@
 
                 <!-- Action Tools -->
                 <div class="flex items-center gap-2 flex-wrap">
+                    <!-- Auto Sync Pill -->
+                    <div class="flex items-center bg-[#070b14] border border-dark-border rounded-xl p-0.5 shadow-sm">
+                        <button id="autoSyncPillBtn" onclick="toggleAutoSyncQuick()" class="px-2.5 py-1.5 hover:bg-slate-800/70 rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer" title="Click to toggle Auto Sync ON/OFF">
+                            <span id="autoSyncDot" class="w-2 h-2 rounded-full {% if auto_sync and auto_sync.enabled %}bg-emerald-400 animate-pulse{% else %}bg-slate-500{% endif %}"></span>
+                            <span class="flex items-center gap-1">
+                                <i data-lucide="zap" id="autoSyncZapIcon" class="w-3.5 h-3.5 {% if auto_sync and auto_sync.enabled %}text-amber-400{% else %}text-slate-500{% endif %}"></i>
+                                <span id="autoSyncLabel" class="text-slate-200">Auto Sync: <span class="{% if auto_sync and auto_sync.enabled %}text-emerald-400 font-bold{% else %}text-slate-400 font-normal{% endif %}">{% if auto_sync and auto_sync.enabled %}ON ({{ auto_sync.interval_minutes }}m){% else %}OFF{% endif %}</span></span>
+                            </span>
+                            <span id="autoSyncCountdown" class="text-[10px] text-slate-400 font-mono pl-1.5 border-l border-slate-700/80">{% if auto_sync and auto_sync.enabled and auto_sync.next_sync_seconds is not none %}in {{ (auto_sync.next_sync_seconds // 60) }}m {{ (auto_sync.next_sync_seconds % 60) }}s{% else %}Paused{% endif %}</span>
+                        </button>
+                        <button onclick="openSourcesModal(true)" class="p-1.5 hover:bg-slate-800 text-slate-400 hover:text-white rounded-lg transition cursor-pointer" title="Auto Sync Settings & Interval">
+                            <i data-lucide="settings-2" class="w-3.5 h-3.5"></i>
+                        </button>
+                    </div>
+
                     <button id="syncSourcesBtn" onclick="syncSourcesNow()" class="px-3.5 py-2 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-brand-600/20 transition flex items-center gap-1.5 cursor-pointer">
                         <i data-lucide="refresh-cw" id="syncIcon" class="w-3.5 h-3.5"></i>
                         <span id="syncText">Sync Now</span>
@@ -693,6 +708,57 @@
                 </button>
             </div>
 
+            <!-- Auto Sync Configuration Card -->
+            <div id="autoSyncConfigCard" class="bg-[#070b14] border border-dark-border/90 rounded-2xl p-4 flex flex-col gap-3 shadow-inner">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-2.5">
+                        <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center border border-amber-500/20">
+                            <i data-lucide="zap" class="w-4 h-4"></i>
+                        </div>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <h4 class="text-xs font-bold text-white">Automatic Feed Sync</h4>
+                                <span id="modalAutoSyncStatusBadge" class="text-[10px] px-2 py-0.5 rounded-full font-bold {% if auto_sync and auto_sync.enabled %}bg-emerald-950 text-emerald-300 border border-emerald-800/80{% else %}bg-slate-800 text-slate-400 border border-slate-700{% endif %}">
+                                    {% if auto_sync and auto_sync.enabled %}ACTIVE{% else %}PAUSED{% endif %}
+                                </span>
+                            </div>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Automatically fetches latest videos from bio.site & Telegram sources</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Toggle Switch -->
+                    <label class="relative inline-flex items-center cursor-pointer select-none">
+                        <input type="checkbox" id="autoSyncModalToggle" class="sr-only peer" {% if auto_sync and auto_sync.enabled %}checked{% endif %} onchange="handleAutoSyncToggle(this.checked)">
+                        <div class="w-11 h-6 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                    </label>
+                </div>
+
+                <!-- Interval Selector & Status -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-dark-border/60 items-center">
+                    <div>
+                        <label class="text-[11px] text-slate-400 block mb-1.5 font-medium">Sync Every</label>
+                        <div class="flex items-center gap-1.5 flex-wrap" id="autoSyncIntervalGroup">
+                            <button type="button" onclick="setAutoSyncInterval(5)" data-interval="5" class="auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer {% if auto_sync and auto_sync.interval_minutes == 5 %}bg-brand-600 border-brand-500 text-white shadow{% else %}bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600{% endif %}">5 min</button>
+                            <button type="button" onclick="setAutoSyncInterval(10)" data-interval="10" class="auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer {% if auto_sync and (auto_sync.interval_minutes == 10 or not auto_sync.interval_minutes) %}bg-brand-600 border-brand-500 text-white shadow{% else %}bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600{% endif %}">10 min</button>
+                            <button type="button" onclick="setAutoSyncInterval(15)" data-interval="15" class="auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer {% if auto_sync and auto_sync.interval_minutes == 15 %}bg-brand-600 border-brand-500 text-white shadow{% else %}bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600{% endif %}">15 min</button>
+                            <button type="button" onclick="setAutoSyncInterval(30)" data-interval="30" class="auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer {% if auto_sync and auto_sync.interval_minutes == 30 %}bg-brand-600 border-brand-500 text-white shadow{% else %}bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600{% endif %}">30 min</button>
+                            <button type="button" onclick="setAutoSyncInterval(60)" data-interval="60" class="auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer {% if auto_sync and auto_sync.interval_minutes == 60 %}bg-brand-600 border-brand-500 text-white shadow{% else %}bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600{% endif %}">1 hour</button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-[#0b1324] border border-dark-border/60 rounded-xl p-2.5 flex flex-col justify-center text-[11px]">
+                        <div class="flex items-center justify-between text-slate-400">
+                            <span>Next Sync:</span>
+                            <span id="modalNextSyncCountdown" class="font-mono text-emerald-400 font-bold">{% if auto_sync and auto_sync.enabled and auto_sync.next_sync_seconds is not none %}in {{ (auto_sync.next_sync_seconds // 60) }}m {{ (auto_sync.next_sync_seconds % 60) }}s{% else %}Paused{% endif %}</span>
+                        </div>
+                        <div class="flex items-center justify-between text-slate-400 mt-1">
+                            <span>Last Status:</span>
+                            <span id="modalLastSyncStatusText" class="text-slate-200 truncate max-w-[170px]" title="{{ auto_sync.last_status if auto_sync else 'Ready' }}">{{ auto_sync.last_status if auto_sync else 'Ready' }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Add Source Form -->
             <form id="addSourceForm" onsubmit="handleAddSource(event)" class="bg-[#070b14] border border-dark-border/80 rounded-2xl p-4 flex flex-col gap-3">
                 <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
@@ -877,6 +943,175 @@
             }
         }
 
+        // ==================== AUTO SYNC CONTROLLER ====================
+        let autoSyncState = {
+            enabled: {{ 'true' if (auto_sync and auto_sync.enabled) else 'false' }},
+            interval_minutes: {{ auto_sync.interval_minutes if auto_sync else 10 }},
+            next_sync_seconds: {{ auto_sync.next_sync_seconds if (auto_sync and auto_sync.next_sync_seconds is not none) else 'null' }},
+            is_syncing: {{ 'true' if (auto_sync and auto_sync.is_syncing) else 'false' }},
+            last_status: "{{ (auto_sync.last_status if auto_sync else 'Ready')|replace('"', '\\"') }}"
+        };
+
+        function formatRemainingTime(seconds) {
+            if (seconds === null || seconds === undefined || seconds < 0) return 'Paused';
+            if (seconds === 0) return 'Syncing...';
+            const m = Math.floor(seconds / 60);
+            const s = Math.floor(seconds % 60);
+            if (m === 0) return `${s}s`;
+            return `${m}m ${s}s`;
+        }
+
+        function renderAutoSyncUI() {
+            // Header Pill elements
+            const dot = document.getElementById('autoSyncDot');
+            const label = document.getElementById('autoSyncLabel');
+            const countdown = document.getElementById('autoSyncCountdown');
+            const zap = document.getElementById('autoSyncZapIcon');
+
+            // Modal elements
+            const modalToggle = document.getElementById('autoSyncModalToggle');
+            const modalBadge = document.getElementById('modalAutoSyncStatusBadge');
+            const modalCountdown = document.getElementById('modalNextSyncCountdown');
+            const modalStatus = document.getElementById('modalLastSyncStatusText');
+
+            if (autoSyncState.enabled) {
+                if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+                if (zap) {
+                    zap.classList.remove('text-slate-500');
+                    zap.classList.add('text-amber-400');
+                }
+                if (label) label.innerHTML = `Auto Sync: <span class="text-emerald-400 font-bold">ON (${autoSyncState.interval_minutes}m)</span>`;
+                const timeText = autoSyncState.is_syncing ? 'Syncing...' : `in ${formatRemainingTime(autoSyncState.next_sync_seconds)}`;
+                if (countdown) countdown.innerText = timeText;
+
+                if (modalBadge) {
+                    modalBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-950 text-emerald-300 border border-emerald-800/80';
+                    modalBadge.innerText = autoSyncState.is_syncing ? 'SYNCING...' : 'ACTIVE';
+                }
+                if (modalCountdown) {
+                    modalCountdown.innerText = timeText;
+                    modalCountdown.className = 'font-mono text-emerald-400 font-bold';
+                }
+            } else {
+                if (dot) dot.className = 'w-2 h-2 rounded-full bg-slate-500';
+                if (zap) {
+                    zap.classList.remove('text-amber-400');
+                    zap.classList.add('text-slate-500');
+                }
+                if (label) label.innerHTML = `Auto Sync: <span class="text-slate-400 font-normal">OFF</span>`;
+                if (countdown) countdown.innerText = 'Paused';
+
+                if (modalBadge) {
+                    modalBadge.className = 'text-[10px] px-2 py-0.5 rounded-full font-bold bg-slate-800 text-slate-400 border border-slate-700';
+                    modalBadge.innerText = 'PAUSED';
+                }
+                if (modalCountdown) {
+                    modalCountdown.innerText = 'Paused';
+                    modalCountdown.className = 'font-mono text-slate-400 font-bold';
+                }
+            }
+
+            if (modalToggle) modalToggle.checked = !!autoSyncState.enabled;
+            if (modalStatus) {
+                modalStatus.innerText = autoSyncState.last_status || 'Ready';
+                modalStatus.title = autoSyncState.last_status || 'Ready';
+            }
+
+            // Highlight active interval button in modal
+            document.querySelectorAll('.auto-sync-int-btn').forEach(btn => {
+                const intVal = parseInt(btn.getAttribute('data-interval'), 10);
+                if (intVal === autoSyncState.interval_minutes) {
+                    btn.className = 'auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer bg-brand-600 border-brand-500 text-white shadow';
+                } else {
+                    btn.className = 'auto-sync-int-btn px-2.5 py-1 text-[11px] rounded-lg border font-semibold transition cursor-pointer bg-[#0f172a] border-dark-border text-slate-300 hover:border-slate-600';
+                }
+            });
+        }
+
+        // Quick Toggle from Feed Header
+        async function toggleAutoSyncQuick() {
+            const newState = !autoSyncState.enabled;
+            await sendAutoSyncUpdate({ enabled: newState });
+        }
+
+        // Toggle from Modal Switch
+        async function handleAutoSyncToggle(checked) {
+            await sendAutoSyncUpdate({ enabled: checked });
+        }
+
+        // Change Interval
+        async function setAutoSyncInterval(mins) {
+            await sendAutoSyncUpdate({ interval_minutes: mins });
+        }
+
+        // Send Update to Server
+        async function sendAutoSyncUpdate(payload) {
+            try {
+                const res = await fetch('/admin/api/sources/auto_sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    autoSyncState.enabled = data.enabled;
+                    autoSyncState.interval_minutes = data.interval_minutes;
+                    autoSyncState.next_sync_seconds = data.next_sync_seconds;
+                    autoSyncState.is_syncing = data.is_syncing;
+                    autoSyncState.last_status = data.last_status;
+                    renderAutoSyncUI();
+                    showToast("Auto Sync Updated", payload.enabled !== undefined ? (payload.enabled ? "Auto Sync activated!" : "Auto Sync paused.") : `Interval set to ${data.interval_minutes} minutes.`);
+                } else {
+                    showToast("Error", data.error || "Failed to update Auto Sync", true);
+                }
+            } catch (err) {
+                showToast("Network Error", err.message, true);
+            }
+        }
+
+        // Periodic Background Poller (every 12 seconds)
+        async function checkAutoSyncStatus() {
+            try {
+                const res = await fetch('/admin/api/sources/auto_sync');
+                const data = await res.json();
+                if (data.success) {
+                    const wasSyncing = autoSyncState.is_syncing;
+                    autoSyncState.enabled = data.enabled;
+                    autoSyncState.interval_minutes = data.interval_minutes;
+                    autoSyncState.next_sync_seconds = data.next_sync_seconds;
+                    autoSyncState.is_syncing = data.is_syncing;
+                    autoSyncState.last_status = data.last_status;
+                    renderAutoSyncUI();
+
+                    // If a sync just completed and found new videos, notify and reload
+                    if (wasSyncing && !data.is_syncing && data.last_new_videos > 0) {
+                        showToast("Auto Sync Update", `Discovered ${data.last_new_videos} new video(s)! Reloading feed...`);
+                        setTimeout(() => window.location.reload(), 1500);
+                    }
+                }
+            } catch (e) {
+                // background check failure ignored
+            }
+        }
+
+        // 1-second countdown ticker
+        setInterval(() => {
+            if (autoSyncState.enabled && !autoSyncState.is_syncing && autoSyncState.next_sync_seconds !== null) {
+                if (autoSyncState.next_sync_seconds > 0) {
+                    autoSyncState.next_sync_seconds--;
+                    renderAutoSyncUI();
+                } else {
+                    autoSyncState.next_sync_seconds = null;
+                    autoSyncState.is_syncing = true;
+                    renderAutoSyncUI();
+                    setTimeout(checkAutoSyncStatus, 2500);
+                }
+            }
+        }, 1000);
+
+        // Poller timer
+        setInterval(checkAutoSyncStatus, 12000);
+
         // ----------------- SYNC SOURCES NOW -----------------
         async function syncSourcesNow() {
             const syncBtn = document.getElementById('syncSourcesBtn');
@@ -943,13 +1178,27 @@
         }
 
         // ----------------- MODAL CONTROLS -----------------
-        function openSourcesModal() {
-            document.getElementById('sourcesModal').classList.remove('hidden');
+        function openSourcesModal(focusAutoSync = false) {
+            const modal = document.getElementById('sourcesModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                if (focusAutoSync) {
+                    setTimeout(() => {
+                        const card = document.getElementById('autoSyncConfigCard');
+                        if (card) {
+                            card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            card.classList.add('ring-2', 'ring-brand-500');
+                            setTimeout(() => card.classList.remove('ring-2', 'ring-brand-500'), 1500);
+                        }
+                    }, 50);
+                }
+            }
         }
 
         function closeSourcesModal() {
             document.getElementById('sourcesModal').classList.add('hidden');
         }
+
 
         // ----------------- SEARCH LOGS MODAL CONTROLS -----------------
         function openLogsModal() {
