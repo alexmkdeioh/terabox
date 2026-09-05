@@ -1565,12 +1565,22 @@ def admin_clear():
 @app.route('/api/diag')
 def api_diag():
     clean_id = request.args.get('id', '69176413f37dbe35e7b299a5')
-    node_bin = shutil.which('node') or shutil.which('nodejs')
-    
-    # Check all possible browser locations
+    do_install = request.args.get('install')
+    install_log = None
+    if do_install:
+        try:
+            node_bin = shutil.which('node') or shutil.which('nodejs')
+            browser_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "browser")
+            cmd = ["npx", "-y", "@puppeteer/browsers", "install", "chrome@stable", "--path", browser_dir]
+            res_inst = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+            install_log = {"stdout": res_inst.stdout, "stderr": res_inst.stderr, "code": res_inst.returncode}
+        except Exception as e:
+            install_log = {"error": str(e)}
+            
     possible_dirs = [
         os.path.expanduser('~/.cache/ms-playwright'),
         os.path.expanduser('~/.cache/puppeteer'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'browser'),
         '/opt/render/project/src/browser'
     ]
     found_browsers = []
@@ -1581,15 +1591,16 @@ def api_diag():
                     if f in ['chrome', 'chromium', 'chrome.exe']:
                         found_browsers.append(os.path.join(root, f))
                         
+    node_bin = shutil.which('node') or shutil.which('nodejs')
     engine_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "diskwala_engine.js")
     engine_exists = os.path.exists(engine_path)
     
-    # Test resolve
-    resolve_test = resolve_diskwala_stream(clean_id)
+    resolve_test = resolve_diskwala_stream(clean_id) if not do_install else None
     
     return jsonify({
         "platform": sys.platform,
         "node": node_bin,
+        "install_log": install_log,
         "found_browsers": found_browsers,
         "engine_exists": engine_exists,
         "resolve_result": resolve_test
@@ -1597,7 +1608,6 @@ def api_diag():
 
 
 if __name__ == '__main__':
-    import sys
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
     print("==================================================")
