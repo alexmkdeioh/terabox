@@ -18,6 +18,13 @@ try:
 except ImportError:
     HAS_CRYPTO = False
 
+try:
+    from bs4 import BeautifulSoup
+    HAS_BS4 = True
+except ImportError:
+    HAS_BS4 = False
+
+
 _YTDLP_MODULE = None
 
 def get_ytdlp():
@@ -61,7 +68,7 @@ def get_db_connection():
     """Returns a database connection (PostgreSQL if DATABASE_URL is set, otherwise local SQLite)."""
     if DATABASE_URL and HAS_PSYCOPG2:
         try:
-            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=4)
             return "postgres", conn
         except Exception as e:
             print("PostgreSQL connection error, falling back to SQLite:", e)
@@ -75,7 +82,7 @@ def get_db_connection():
 
 
 def init_db():
-    """Initializes the search_logs table across PostgreSQL and SQLite."""
+    """Initializes tables for search_logs, feed_sources, and feed_videos across PostgreSQL and SQLite."""
     try:
         db_type, conn = get_db_connection()
         with conn:
@@ -95,6 +102,34 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS feed_sources (
+                        id SERIAL PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        url TEXT UNIQUE NOT NULL,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_synced_at TIMESTAMP
+                    );
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS feed_videos (
+                        id SERIAL PRIMARY KEY,
+                        source_id INTEGER,
+                        source_name TEXT,
+                        title TEXT NOT NULL,
+                        video_url TEXT UNIQUE NOT NULL,
+                        thumbnail_url TEXT,
+                        surl TEXT,
+                        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                ''')
+                cursor.execute("SELECT COUNT(*) FROM feed_sources")
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute('''
+                        INSERT INTO feed_sources (name, url, is_active)
+                        VALUES (%s, %s, %s)
+                    ''', ('BuriburiReviews', 'https://bio.site/BuriburiReviews', True))
             else:
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS search_logs (
@@ -110,6 +145,34 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS feed_sources (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        url TEXT UNIQUE NOT NULL,
+                        is_active INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        last_synced_at TIMESTAMP
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS feed_videos (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        source_id INTEGER,
+                        source_name TEXT,
+                        title TEXT NOT NULL,
+                        video_url TEXT UNIQUE NOT NULL,
+                        thumbnail_url TEXT,
+                        surl TEXT,
+                        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                cursor.execute("SELECT COUNT(*) FROM feed_sources")
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute('''
+                        INSERT INTO feed_sources (name, url, is_active)
+                        VALUES (?, ?, ?)
+                    ''', ('BuriburiReviews', 'https://bio.site/BuriburiReviews', 1))
             conn.commit()
         conn.close()
     except Exception as e:
@@ -1471,6 +1534,472 @@ def health():
     }), 200
 
 
+# ----------------- ADMIN CURATED VIDEO FEED & MULTI-SOURCE SCRAPER -----------------
+
+def scrape_feed_source(source_url):
+    """
+    Universal scraper capable of parsing bio.site, linktree, and video link aggregators.
+    Returns a list of dicts: [{'title': ..., 'video_url': ..., 'thumbnail_url': ..., 'surl': ...}]
+    """
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9'
+    }
+    try:
+        # Normalize telegram source URLs to web preview
+        target_url = source_url
+        if 't.me/' in source_url:
+            target_url = re.sub(r'https?://t\.me/(?!s/)([^/]+)', r'https://t.me/s/\1', source_url.strip())
+
+        r = requests.get(target_url, headers=headers, timeout=15)
+        if r.status_code != 200:
+            print(f"Failed to fetch source {source_url}: status {r.status_code}")
+            return []
+
+        soup = BeautifulSoup(r.text, 'html.parser')
+        raw_items = []
+
+        # 1. Telegram Channel Web Preview (t.me/s/...)
+        tg_wraps = soup.find_all('div', class_='tgme_widget_message_wrap')
+        if tg_wraps:
+            for wrap in tg_wraps:
+                text_el = wrap.find('div', class_='tgme_widget_message_text')
+                text = text_el.get_text(separator="\n", strip=True) if text_el else ""
+
+                img_src = ""
+                photo_el = wrap.find('a', class_='tgme_widget_message_photo_wrap')
+                if photo_el and photo_el.get('style'):
+                    m_bg = re.search(r"background-image:url\('([^']+)'\)", photo_el['style'])
+                    if m_bg:
+                        img_src = m_bg.group(1)
+
+                links = re.findall(r'https?://[^\s<>"]+', text)
+                if text_el:
+                    for a in text_el.find_all('a', href=True):
+                        links.append(a['href'])
+
+                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                title = lines[0] if lines else 'Telegram Video'
+
+                for href in links:
+                    clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
+                    is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                    if is_video:
+                        raw_items.append({
+                            'title': title[:180],
+                            'video_url': href,
+                            'thumbnail_url': img_src,
+                            'surl': clean_surl
+                        })
+
+        # 2. bio.site specific detection
+        biosite_links = soup.find_all('a', attrs={'data-cy': 'biosite-link'})
+        if biosite_links:
+            for a in biosite_links:
+                href = (a.get('href') or '').strip()
+                title_el = a.find(attrs={'data-cy': 'link-text-name'})
+                title = title_el.get_text(strip=True) if title_el else ''
+                img_el = a.find('img')
+                img_src = (img_el.get('src') or '').strip() if img_el else ''
+
+                if not href:
+                    continue
+
+                clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
+                is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
+
+                if is_video:
+                    raw_items.append({
+                        'title': title or 'Video Post',
+                        'video_url': href,
+                        'thumbnail_url': img_src,
+                        'surl': clean_surl
+                    })
+        elif not tg_wraps:
+            # 3. Generic HTML / aggregator fallback
+            for a in soup.find_all('a', href=True):
+                href = (a.get('href') or '').strip()
+                if not href.startswith('http'):
+                    continue
+                clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
+                is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
+                if is_video:
+                    title = a.get_text(strip=True)
+                    if not title:
+                        title = a.get('title') or a.get('aria-label') or ''
+                    img_el = a.find('img') or (a.parent and a.parent.find('img'))
+                    img_src = (img_el.get('src') or '').strip() if img_el else ''
+
+                    raw_items.append({
+                        'title': title or 'Video Post',
+                        'video_url': href,
+                        'thumbnail_url': img_src,
+                        'surl': clean_surl
+                    })
+
+        # Deduplicate while preserving order
+        seen_urls = set()
+        unique_items = []
+        for it in raw_items:
+            u = it['video_url']
+            if u not in seen_urls:
+                seen_urls.add(u)
+                unique_items.append(it)
+
+        return unique_items
+    except Exception as e:
+        print(f"Error scraping source {source_url}:", e)
+        return []
+
+
+def import_single_link(raw_input: str) -> dict:
+    """
+    Imports video(s) into the admin feed from:
+    1. Telegram post link (public e.g. t.me/channel/123 or private t.me/c/...)
+    2. Direct TeraBox / video link
+    3. Copied message text containing video links
+    """
+    clean_input = (raw_input or "").strip()
+    if not clean_input:
+        return {"success": False, "error": "Please enter a valid link or post URL."}
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    }
+
+    found_videos = []
+
+    # Case 1: Telegram Post Link (e.g. https://t.me/channel/123 or https://t.me/s/channel/123)
+    tg_match = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_input)
+    if tg_match:
+        channel, msg_id = tg_match.group(1), tg_match.group(2)
+        if channel == 'c':
+            # Private group link: https://t.me/c/CHAT_ID/MSG_ID
+            config_file = os.path.join(os.path.dirname(__file__), "telegram_config.json")
+            session_file = os.path.join(os.path.dirname(__file__), "telegram_session.session")
+            if os.path.exists(config_file) and os.path.exists(session_file):
+                try:
+                    with open(config_file, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                    api_id = cfg.get("api_id")
+                    api_hash = cfg.get("api_hash")
+                    from telethon import TelegramClient
+                    import asyncio
+
+                    async def get_private_msg():
+                        client = TelegramClient(os.path.join(os.path.dirname(__file__), "telegram_session"), api_id, api_hash)
+                        await client.connect()
+                        if await client.is_user_authorized():
+                            chat_num = int(f"-100{msg_id}") if not msg_id else int(f"-100{channel}")
+                            real_msg_id = int(tg_match.group(2))
+                            msg = await client.get_messages(chat_num, ids=real_msg_id)
+                            await client.disconnect()
+                            return msg
+                        await client.disconnect()
+                        return None
+
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    msg = loop.run_until_complete(get_private_msg())
+                    if msg:
+                        text = msg.text or ""
+                        links = re.findall(r'https?://[^\s<>"]+', text)
+                        lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                        title = lines[0] if lines else f"Telegram Private Video #{msg_id}"
+                        for href in links:
+                            surl = extract_surl(href)
+                            if surl or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox']):
+                                found_videos.append({
+                                    "title": title,
+                                    "video_url": href,
+                                    "thumbnail_url": "",
+                                    "surl": surl,
+                                    "source_name": "Telegram (Private)"
+                                })
+                except Exception as e:
+                    print("Error fetching private telegram post:", e)
+
+            if not found_videos:
+                # Check if there are other links inside the input string
+                extra_links = re.findall(r'https?://[^\s<>"]+', clean_input)
+                video_links = [l for l in extra_links if not 't.me/' in l and (extract_surl(l) or any(k in l.lower() for k in ['terabox', 'terashare', 'mirrobox']))]
+                if not video_links:
+                    return {
+                        "success": False,
+                        "error": f"Post link '{clean_input}' is from a private Telegram group. Either authenticate via setup_telegram.py, or paste the video link directly!"
+                    }
+        else:
+            # Public channel post: https://t.me/channel/msg_id
+            scrape_url = f"https://t.me/s/{channel}/{msg_id}"
+            try:
+                r = requests.get(scrape_url, headers=headers, timeout=10)
+                if r.status_code == 200:
+                    soup = BeautifulSoup(r.text, 'html.parser')
+                    text_el = soup.find('div', class_='tgme_widget_message_text')
+                    text = text_el.get_text(separator="\n", strip=True) if text_el else ""
+
+                    img_src = ""
+                    photo_el = soup.find('a', class_='tgme_widget_message_photo_wrap')
+                    if photo_el and photo_el.get('style'):
+                        m_bg = re.search(r"background-image:url\('([^']+)'\)", photo_el['style'])
+                        if m_bg:
+                            img_src = m_bg.group(1)
+
+                    links = re.findall(r'https?://[^\s<>"]+', text)
+                    if text_el:
+                        for a in text_el.find_all('a', href=True):
+                            links.append(a['href'])
+
+                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                    title = lines[0] if lines else f"Telegram Post #{msg_id}"
+
+                    for href in links:
+                        clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
+                        is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                        if is_video:
+                            found_videos.append({
+                                "title": title,
+                                "video_url": href,
+                                "thumbnail_url": img_src,
+                                "surl": clean_surl,
+                                "source_name": f"Telegram (@{channel})"
+                            })
+            except Exception as e:
+                print("Error scraping public telegram post:", e)
+
+    # Case 2: Extract all video / TeraBox links directly from input
+    if not found_videos:
+        raw_links = re.findall(r'https?://[^\s<>"]+', clean_input)
+        if not raw_links:
+            surl = extract_surl(clean_input)
+            if surl:
+                raw_links = [f"https://1024terabox.com/s/1{surl}"]
+
+        for href in raw_links:
+            clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
+            is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube', 'youtu.be', 'flare'])
+            if is_video:
+                lines = [l.strip() for l in clean_input.split('\n') if l.strip() and not l.startswith('http')]
+                title = lines[0] if lines else f"Imported Video ({clean_surl or 'TeraBox'})"
+
+                thumbnail = ""
+                try:
+                    info = resolve_universal_stream(href)
+                    if info.get("success") and info.get("title") and not info.get("title").startswith("["):
+                        title = info["title"]
+                        thumbnail = info.get("thumbnail") or ""
+                except Exception:
+                    pass
+
+                found_videos.append({
+                    "title": title,
+                    "video_url": href,
+                    "thumbnail_url": thumbnail,
+                    "surl": clean_surl,
+                    "source_name": "Direct Import"
+                })
+
+    if not found_videos:
+        return {"success": False, "error": "Could not find any playable video or TeraBox links in the provided post."}
+
+    # Insert into database at the very top (highest ID)
+    db_type, conn = get_db_connection()
+    inserted_records = []
+    with conn:
+        cursor = conn.cursor()
+        for v in found_videos:
+            surl = v.get("surl") or extract_surl(v["video_url"])
+            source_name = v.get("source_name", "Imported")
+            title = v["title"]
+            v_url = v["video_url"]
+            thumb = v.get("thumbnail_url", "")
+
+            if db_type == "postgres":
+                cursor.execute('''
+                    INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (video_url) DO UPDATE SET title = EXCLUDED.title, thumbnail_url = EXCLUDED.thumbnail_url
+                    RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at
+                ''', (100, source_name, title, v_url, thumb, surl))
+                row = cursor.fetchone()
+                inserted_records.append({
+                    "id": row[0],
+                    "source_name": row[1],
+                    "title": row[2],
+                    "video_url": row[3],
+                    "thumbnail_url": row[4],
+                    "surl": row[5],
+                    "discovered_at": str(row[6])
+                })
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (100, source_name, title, v_url, thumb, surl))
+                vid_id = cursor.lastrowid
+                inserted_records.append({
+                    "id": vid_id,
+                    "source_name": source_name,
+                    "title": title,
+                    "video_url": v_url,
+                    "thumbnail_url": thumb,
+                    "surl": surl,
+                    "discovered_at": "Just now"
+                })
+        conn.commit()
+    conn.close()
+
+    return {
+        "success": True,
+        "message": f"Successfully imported {len(inserted_records)} video(s) to top of feed!",
+        "videos": inserted_records
+    }
+
+
+
+def sync_feed_sources():
+    """Fetches all active sources, scrapes their latest videos, and inserts new videos into feed_videos."""
+    try:
+        db_type, conn = get_db_connection()
+        sources = []
+        if db_type == "postgres" and HAS_PSYCOPG2:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("SELECT id, name, url FROM feed_sources WHERE is_active = TRUE ORDER BY id ASC")
+            sources = cursor.fetchall()
+        else:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, name, url FROM feed_sources WHERE is_active = 1 ORDER BY id ASC")
+            sources = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+
+        total_new_videos = 0
+
+        for src in sources:
+            source_id = src['id']
+            source_name = src['name']
+            source_url = src['url']
+
+            items = scrape_feed_source(source_url)
+            if not items:
+                continue
+
+            db_type, conn = get_db_connection()
+            with conn:
+                cursor = conn.cursor()
+                if db_type == "postgres":
+                    cursor.execute("SELECT video_url FROM feed_videos WHERE source_id = %s", (source_id,))
+                else:
+                    cursor.execute("SELECT video_url FROM feed_videos WHERE source_id = ?", (source_id,))
+                existing_urls = set(row[0] for row in cursor.fetchall())
+
+                new_items = [it for it in items if it['video_url'] not in existing_urls]
+
+                # Insert in reverse order so top item on source page (the newest post)
+                # is inserted last, getting the highest auto-increment ID and latest timestamp.
+                for it in reversed(new_items):
+                    clean_surl = it.get('surl') or extract_surl(it['video_url']) or extract_youtube_id(it['video_url']) or extract_flare_id(it['video_url'])
+                    if db_type == "postgres":
+                        cursor.execute('''
+                            INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            ON CONFLICT (video_url) DO NOTHING
+                        ''', (source_id, source_name, it['title'], it['video_url'], it['thumbnail_url'], clean_surl))
+                    else:
+                        cursor.execute('''
+                            INSERT OR IGNORE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        ''', (source_id, source_name, it['title'], it['video_url'], it['thumbnail_url'], clean_surl))
+                    total_new_videos += 1
+
+                if db_type == "postgres":
+                    cursor.execute("UPDATE feed_sources SET last_synced_at = CURRENT_TIMESTAMP WHERE id = %s", (source_id,))
+                else:
+                    cursor.execute("UPDATE feed_sources SET last_synced_at = datetime('now') WHERE id = ?", (source_id,))
+                conn.commit()
+            conn.close()
+
+        return total_new_videos
+    except Exception as e:
+        print("sync_feed_sources error:", e)
+        return 0
+
+
+def _initial_feed_sync():
+    """Initializes feed sync asynchronously in background."""
+    time.sleep(2)
+    try:
+        sync_feed_sources()
+    except Exception as e:
+        print("Initial feed sync error:", e)
+
+threading.Thread(target=_initial_feed_sync, daemon=True).start()
+
+
+def _start_telegram_listener():
+    """Starts background Telethon listener for Telegram private group if configured."""
+    config_file = os.path.join(os.path.dirname(__file__), "telegram_config.json")
+    session_file = os.path.join(os.path.dirname(__file__), "telegram_session.session")
+    if not os.path.exists(config_file) or not os.path.exists(session_file):
+        return
+
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+
+        if not cfg.get("active"):
+            return
+
+        api_id = cfg.get("api_id")
+        api_hash = cfg.get("api_hash")
+        target_group_id = cfg.get("target_group_id")
+        group_title = cfg.get("target_group_title", "Private Group")
+
+        from telethon import TelegramClient, events
+        import asyncio
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        client = TelegramClient(os.path.join(os.path.dirname(__file__), "telegram_session"), api_id, api_hash, loop=loop)
+
+        @client.on(events.NewMessage(chats=target_group_id))
+        async def handler(event):
+            text = event.raw_text or ""
+            links = re.findall(r'https?://[^\s]+', text)
+            for link in links:
+                clean_surl = extract_surl(link)
+                is_video = bool(clean_surl) or any(k in link.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                if is_video:
+                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                    title = lines[0] if lines else f"Telegram Video ({group_title})"
+                    db_type, conn = get_db_connection()
+                    with conn:
+                        cursor = conn.cursor()
+                        if db_type == "postgres":
+                            cursor.execute('''
+                                INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (video_url) DO NOTHING
+                            ''', (target_group_id, f"Telegram: {group_title}", title[:200], link, "", clean_surl))
+                        else:
+                            cursor.execute('''
+                                INSERT OR IGNORE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                            ''', (target_group_id, f"Telegram: {group_title}", title[:200], link, "", clean_surl))
+                        conn.commit()
+                    conn.close()
+
+        loop.run_until_complete(client.start())
+        client.run_until_disconnected()
+    except Exception as e:
+        print("Telegram background listener error:", e)
+
+threading.Thread(target=_start_telegram_listener, daemon=True).start()
+
+
+
 # ----------------- ADMIN PANEL ROUTES -----------------
 
 @app.route('/admin/login', methods=['GET', 'POST'])
@@ -1504,11 +2033,15 @@ def admin_dashboard():
         return redirect(url_for('admin_login'))
 
     logs = []
+    feed_videos = []
+    feed_sources = []
     stats = {
         "total_searches": 0,
         "unique_links": 0,
         "today_searches": 0,
         "unique_ips": 0,
+        "total_feed_videos": 0,
+        "active_sources": 0,
         "db_type": "SQLite (Local File)"
     }
 
@@ -1530,8 +2063,23 @@ def admin_dashboard():
             cursor.execute('SELECT COUNT(DISTINCT user_ip) AS count FROM search_logs')
             stats["unique_ips"] = cursor.fetchone()['count']
 
+            cursor.execute('SELECT COUNT(*) AS count FROM feed_videos')
+            stats["total_feed_videos"] = cursor.fetchone()['count']
+
+            cursor.execute('SELECT COUNT(*) AS count FROM feed_sources WHERE is_active = TRUE')
+            stats["active_sources"] = cursor.fetchone()['count']
+
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
             logs = cursor.fetchall()
+
+            cursor.execute('SELECT * FROM feed_videos ORDER BY id DESC LIMIT 500')
+            feed_videos = cursor.fetchall()
+
+            cursor.execute('''
+                SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
+                FROM feed_sources s ORDER BY s.id ASC
+            ''')
+            feed_sources = cursor.fetchall()
         else:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -1548,14 +2096,190 @@ def admin_dashboard():
             cursor.execute('SELECT COUNT(DISTINCT user_ip) FROM search_logs')
             stats["unique_ips"] = cursor.fetchone()[0]
 
+            cursor.execute('SELECT COUNT(*) FROM feed_videos')
+            stats["total_feed_videos"] = cursor.fetchone()[0]
+
+            cursor.execute('SELECT COUNT(*) FROM feed_sources WHERE is_active = 1')
+            stats["active_sources"] = cursor.fetchone()[0]
+
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
             logs = [dict(row) for row in cursor.fetchall()]
+
+            cursor.execute('SELECT * FROM feed_videos ORDER BY id DESC LIMIT 500')
+            feed_videos = [dict(row) for row in cursor.fetchall()]
+
+            cursor.execute('''
+                SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
+                FROM feed_sources s ORDER BY s.id ASC
+            ''')
+            feed_sources = [dict(row) for row in cursor.fetchall()]
 
         conn.close()
     except Exception as e:
         print("Admin fetch error:", e)
 
-    return render_template('admin.html', logs=logs, stats=stats)
+    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources)
+
+
+@app.route('/admin/api/sources/sync', methods=['POST'])
+def admin_api_sync_sources():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        new_count = sync_feed_sources()
+        return jsonify({"success": True, "new_count": new_count, "message": f"Sync completed! {new_count} new video(s) added."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/sources', methods=['GET'])
+def admin_api_get_sources():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        db_type, conn = get_db_connection()
+        if db_type == "postgres" and HAS_PSYCOPG2:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+        cursor.execute('''
+            SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
+            FROM feed_sources s ORDER BY s.id ASC
+        ''')
+        rows = [dict(r) for r in cursor.fetchall()]
+        conn.close()
+        return jsonify({"success": True, "sources": rows})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/sources/add', methods=['POST'])
+def admin_api_add_source():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or request.form or {}
+    url = (data.get('url') or '').strip()
+    name = (data.get('name') or '').strip()
+    if not url:
+        return jsonify({"success": False, "error": "Source URL is required."}), 400
+    if not name:
+        name = urlparse(url).netloc or "New Source"
+
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute('''
+                    INSERT INTO feed_sources (name, url, is_active)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (url) DO UPDATE SET is_active = TRUE
+                ''', (name, url, True))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO feed_sources (name, url, is_active)
+                    VALUES (?, ?, ?)
+                ''', (name, url, 1))
+            conn.commit()
+        conn.close()
+
+        # Run background sync for the new source
+        threading.Thread(target=sync_feed_sources, daemon=True).start()
+        return jsonify({"success": True, "message": f"Source '{name}' added successfully! Fetching videos in background."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/sources/toggle/<int:source_id>', methods=['POST'])
+def admin_api_toggle_source(source_id):
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute("UPDATE feed_sources SET is_active = NOT is_active WHERE id = %s", (source_id,))
+            else:
+                cursor.execute("UPDATE feed_sources SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?", (source_id,))
+            conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/sources/delete/<int:source_id>', methods=['POST'])
+def admin_api_delete_source(source_id):
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute("DELETE FROM feed_sources WHERE id = %s", (source_id,))
+                cursor.execute("DELETE FROM feed_videos WHERE source_id = %s", (source_id,))
+            else:
+                cursor.execute("DELETE FROM feed_sources WHERE id = ?", (source_id,))
+                cursor.execute("DELETE FROM feed_videos WHERE source_id = ?", (source_id,))
+            conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Source and its videos removed."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/feed/delete/<int:video_id>', methods=['POST'])
+def admin_api_delete_feed_video(video_id):
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute("DELETE FROM feed_videos WHERE id = %s", (video_id,))
+            else:
+                cursor.execute("DELETE FROM feed_videos WHERE id = ?", (video_id,))
+            conn.commit()
+        conn.close()
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/feed/clear', methods=['POST'])
+def admin_api_clear_feed():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM feed_videos")
+            conn.commit()
+        conn.close()
+        return jsonify({"success": True, "message": "Feed cleared."})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/feed/import_link', methods=['POST'])
+def admin_api_import_link():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or request.form or {}
+    raw_input = (data.get('link') or data.get('url') or data.get('text') or '').strip()
+    if not raw_input:
+        return jsonify({"success": False, "error": "No link or post text provided."}), 400
+
+    result = import_single_link(raw_input)
+    status_code = 200 if result.get("success") else 400
+    return jsonify(result), status_code
+
+
 
 
 @app.route('/admin/export/csv')
