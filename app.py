@@ -29,6 +29,7 @@ import concurrent.futures
 try:
     from telethon import TelegramClient
     from telethon.sessions import StringSession
+    from telethon.tl.types import Channel, Chat
     from telethon.errors import (
         SessionPasswordNeededError,
         PhoneCodeInvalidError,
@@ -1810,17 +1811,157 @@ async def async_get_tg_dialogs(api_id, api_hash, session_str):
     if not await client.is_user_authorized():
         await client.disconnect()
         return []
-    dialogs = []
-    async for dialog in client.iter_dialogs(limit=50):
-        if dialog.is_channel or dialog.is_group:
-            dialogs.append({
-                "id": dialog.id,
-                "title": dialog.name or "Untitled",
-                "is_channel": dialog.is_channel,
-                "is_group": dialog.is_group
-            })
+
+    dialogs_map = {}
+
+    async def process_dialog(dialog, is_archived=False):
+        entity = dialog.entity
+        if not isinstance(entity, (Channel, Chat)):
+            return
+
+        is_megagroup = bool(getattr(entity, 'megagroup', False))
+        is_broadcast = bool(getattr(entity, 'broadcast', False))
+        is_basic_group = isinstance(entity, Chat)
+        is_private = not bool(getattr(entity, 'username', None))
+
+        if is_megagroup or is_basic_group:
+            type_label = "Private Group" if is_private else "Public Group"
+            category = "group"
+            is_group = True
+            is_channel = False
+        elif is_broadcast:
+            type_label = "Private Channel" if is_private else "Public Channel"
+            category = "channel"
+            is_group = False
+            is_channel = True
+        else:
+            type_label = "Private Group" if is_private else "Group"
+            category = "group"
+            is_group = True
+            is_channel = False
+
+        if is_archived:
+            type_label += " (Archived)"
+
+        dialogs_map[dialog.id] = {
+            "id": dialog.id,
+            "title": dialog.name or "Untitled",
+            "type_label": type_label,
+            "category": category,
+            "is_private": is_private,
+            "is_group": is_group,
+            "is_channel": is_channel,
+            "username": getattr(entity, 'username', '') or '',
+            "unread_count": getattr(dialog, 'unread_count', 0)
+        }
+
+    # Fetch main dialogs (up to 300)
+    try:
+        async for dialog in client.iter_dialogs(limit=300):
+            await process_dialog(dialog, is_archived=False)
+    except Exception as e:
+        print("iter_dialogs error:", e)
+
+    # Fetch archived dialogs (up to 100)
+    try:
+        async for dialog in client.iter_dialogs(limit=100, archived=True):
+            if dialog.id not in dialogs_map:
+                await process_dialog(dialog, is_archived=True)
+    except Exception as e:
+        print("archived iter_dialogs error:", e)
+
     await client.disconnect()
-    return dialogs
+
+    # Sort: Private Groups first, then all groups, then private channels, then public channels
+    sorted_dialogs = sorted(
+        dialogs_map.values(),
+        key=lambda d: (
+            0 if (d["is_group"] and d["is_private"]) else
+            1 if d["is_group"] else
+            2 if d["is_private"] else 3,
+            d["title"].lower()
+        )
+    )
+    return sorted_dialogs
+
+
+async def async_resolve_tg_dialog(api_id, api_hash, session_str, query):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        return None
+
+    query = (query or "").strip()
+    entity = None
+
+    # 1. Pattern: t.me/c/1234567890
+    m_priv = re.search(r't\.me/c/(\d+)', query)
+    if m_priv:
+        peer_id = int(f"-100{m_priv.group(1)}")
+        try:
+            entity = await client.get_entity(peer_id)
+        except Exception as e:
+            print("resolve t.me/c error:", e)
+
+    # 2. Pattern: Pure number or negative ID
+    if not entity and re.match(r'^-?\d+$', query):
+        num = int(query)
+        peer_id = int(f"-100{abs(num)}") if not str(num).startswith("-100") else num
+        try:
+            entity = await client.get_entity(peer_id)
+        except Exception:
+            try:
+                entity = await client.get_entity(num)
+            except Exception as e:
+                print("resolve numeric error:", e)
+
+    # 3. Pattern: Link or @username
+    if not entity:
+        try:
+            entity = await client.get_entity(query)
+        except Exception as e:
+            print("resolve get_entity error:", e)
+
+    if not entity:
+        await client.disconnect()
+        return None
+
+    is_megagroup = bool(getattr(entity, 'megagroup', False))
+    is_broadcast = bool(getattr(entity, 'broadcast', False))
+    is_basic_group = isinstance(entity, Chat)
+    is_private = not bool(getattr(entity, 'username', None))
+
+    if is_megagroup or is_basic_group:
+        type_label = "Private Group" if is_private else "Public Group"
+        category = "group"
+    elif is_broadcast:
+        type_label = "Private Channel" if is_private else "Public Channel"
+        category = "channel"
+    else:
+        type_label = "Private Group" if is_private else "Group"
+        category = "group"
+
+    entity_id = entity.id
+    if is_megagroup or is_broadcast:
+        if entity_id > 0:
+            entity_id = int(f"-100{entity_id}")
+    elif is_basic_group:
+        if entity_id > 0:
+            entity_id = -entity_id
+
+    result = {
+        "id": entity_id,
+        "title": getattr(entity, 'title', '') or getattr(entity, 'first_name', '') or "Telegram Group",
+        "type_label": type_label,
+        "category": category,
+        "is_private": is_private,
+        "is_group": is_megagroup or is_basic_group,
+        "is_channel": is_broadcast,
+        "username": getattr(entity, 'username', '') or ''
+    }
+    await client.disconnect()
+    return result
 
 
 async def async_fetch_tg_message(api_id, api_hash, session_str, chat_id, msg_id):
@@ -2499,6 +2640,80 @@ def admin_api_telegram_import_dialog():
         combined_text = "\n\n".join(messages)
         res = import_single_link(combined_text)
         return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/telegram/resolve_dialog', methods=['POST'])
+def admin_api_telegram_resolve_dialog():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    auth = get_telegram_auth()
+    if not (auth and auth.get('session_string')):
+        return jsonify({"success": False, "error": "Telegram not connected."}), 400
+
+    data = request.get_json(silent=True) or request.form or {}
+    query = (data.get('query') or '').strip()
+    if not query:
+        return jsonify({"success": False, "error": "Please enter a group ID, link, or username."}), 400
+
+    try:
+        dialog = run_async(async_resolve_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], query))
+        if not dialog:
+            return jsonify({
+                "success": False,
+                "error": f"Could not find or access Telegram group '{query}'. Make sure your logged-in account has joined this group/channel."
+            }), 404
+        return jsonify({"success": True, "dialog": dialog})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/telegram/add_source', methods=['POST'])
+def admin_api_telegram_add_source():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    data = request.get_json(silent=True) or request.form or {}
+    group_id = data.get('group_id')
+    group_title = (data.get('group_title') or 'Telegram Group').strip()
+
+    if not group_id:
+        return jsonify({"success": False, "error": "Group ID is required."}), 400
+
+    clean_id_str = str(group_id).replace('-100', '')
+    source_url = f"https://t.me/c/{clean_id_str}"
+    source_name = f"Telegram: {group_title}"
+
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute('''
+                    INSERT INTO feed_sources (name, url, is_active)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (url) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE
+                ''', (source_name, source_url, True))
+            else:
+                cursor.execute('''
+                    INSERT OR REPLACE INTO feed_sources (name, url, is_active)
+                    VALUES (?, ?, ?)
+                ''', (source_name, source_url, 1))
+            conn.commit()
+        conn.close()
+
+        # Also trigger immediate import of messages in background
+        auth = get_telegram_auth()
+        if auth and auth.get('session_string'):
+            def bg_import():
+                msgs = run_async(async_import_tg_group_messages(
+                    auth['api_id'], auth['api_hash'], auth['session_string'], group_id, 100
+                ))
+                if msgs:
+                    import_single_link("\n\n".join(msgs))
+            threading.Thread(target=bg_import, daemon=True).start()
+
+        return jsonify({"success": True, "message": f"'{group_title}' added as active source! Importing videos in background."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
