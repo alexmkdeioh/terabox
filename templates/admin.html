@@ -1299,11 +1299,11 @@
                         </div>
 
                         <div class="flex items-center gap-2 shrink-0">
-                            <button onclick="importTgGroupVideos(${d.id}, '${escapeHtml(d.title)}', this)" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1.5" title="Import recent videos from this group to top of feed">
+                            <button onclick="importTgGroupVideos(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1.5" title="Import recent videos from this group to top of feed">
                                 <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
                                 <span>Import Videos</span>
                             </button>
-                            <button onclick="addTgGroupAsSource(${d.id}, '${escapeHtml(d.title)}', this)" class="px-2.5 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 hover:text-white border border-dark-border rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1" title="Add as permanent auto-monitored source">
+                            <button onclick="addTgGroupAsSource(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-2.5 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 hover:text-white border border-dark-border rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1" title="Add as permanent auto-monitored source">
                                 <i data-lucide="rss" class="w-3.5 h-3.5 text-indigo-400"></i>
                                 <span class="hidden sm:inline">Add Source</span>
                             </button>
@@ -1340,29 +1340,53 @@
                 if (data.success && data.dialog) {
                     const d = data.dialog;
                     resultBox.classList.remove('hidden');
+
+                    let actionButtonsHtml = '';
+                    if (d.msg_id) {
+                        actionButtonsHtml = `
+                            <button onclick="importSinglePost('${encodeURIComponent(d.query)}', this)" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1.5" title="Directly import this single post">
+                                <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
+                                <span>Import Post #${d.msg_id}</span>
+                            </button>
+                            <button onclick="importTgGroupVideos(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1.5" title="Import recent videos from this channel">
+                                <i data-lucide="folder-down" class="w-3.5 h-3.5"></i>
+                                <span>Import All Recent</span>
+                            </button>
+                            <button onclick="addTgGroupAsSource(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-2.5 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 hover:text-white border border-dark-border rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1">
+                                <i data-lucide="rss" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Add Source</span>
+                            </button>
+                        `;
+                    } else {
+                        actionButtonsHtml = `
+                            <button onclick="importTgGroupVideos(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1.5">
+                                <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
+                                <span>Import Videos</span>
+                            </button>
+                            <button onclick="addTgGroupAsSource(${d.id}, '${encodeURIComponent(d.title)}', this)" class="px-2.5 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 hover:text-white border border-dark-border rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1">
+                                <i data-lucide="rss" class="w-3.5 h-3.5 text-indigo-400"></i>
+                                <span>Add Source</span>
+                            </button>
+                        `;
+                    }
+
                     resultBox.innerHTML = `
-                        <div class="p-3 bg-emerald-950/40 border border-emerald-700/60 rounded-xl flex items-center justify-between gap-3 mt-1">
+                        <div class="p-3.5 bg-emerald-950/40 border border-emerald-700/60 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 mt-1">
                             <div class="min-w-0">
-                                <div class="text-xs font-bold text-white flex items-center gap-2">
+                                <div class="text-xs font-bold text-white flex items-center gap-2 flex-wrap">
                                     <span>🎯 Found: ${d.title}</span>
                                     <span class="px-2 py-0.5 bg-emerald-900/60 text-emerald-300 text-[10px] rounded-md font-semibold">${d.type_label}</span>
+                                    ${d.msg_id ? `<span class="px-2 py-0.5 bg-brand-900/60 text-brand-300 text-[10px] rounded-md font-semibold">Post #${d.msg_id}</span>` : ''}
                                 </div>
-                                <div class="text-[11px] text-emerald-400/80 font-mono">ID: ${d.id}</div>
+                                <div class="text-[11px] text-emerald-400/80 font-mono mt-0.5">ID: ${d.id}</div>
                             </div>
-                            <div class="flex items-center gap-1.5 shrink-0">
-                                <button onclick="importTgGroupVideos(${d.id}, '${escapeHtml(d.title)}', this)" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition cursor-pointer flex items-center gap-1">
-                                    <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
-                                    <span>Import Now</span>
-                                </button>
-                                <button onclick="addTgGroupAsSource(${d.id}, '${escapeHtml(d.title)}', this)" class="px-2.5 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 hover:text-white border border-dark-border rounded-xl text-xs font-semibold transition cursor-pointer flex items-center gap-1">
-                                    <i data-lucide="rss" class="w-3.5 h-3.5 text-indigo-400"></i>
-                                    <span>Add Source</span>
-                                </button>
+                            <div class="flex items-center gap-2 flex-wrap shrink-0">
+                                ${actionButtonsHtml}
                             </div>
                         </div>
                     `;
                     lucide.createIcons();
-                    showToast("Group Found!", `Loaded '${d.title}'`);
+                    showToast("Found!", `Loaded '${d.title}'`);
                 } else {
                     resultBox.classList.remove('hidden');
                     resultBox.innerHTML = `<div class="text-xs text-rose-400 p-2 bg-rose-950/30 border border-rose-800/50 rounded-xl">${data.error || 'Group not found.'}</div>`;
@@ -1377,11 +1401,42 @@
             }
         }
 
-        // Add Telegram Group as Monitored Source
-        async function addTgGroupAsSource(groupId, groupTitle, btn) {
+        // Import Single Telegram Post (by direct link)
+        async function importSinglePost(encodedUrl, btn) {
+            const url = decodeURIComponent(encodedUrl);
             const origHtml = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i>';
+            btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Importing...</span>';
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/admin/api/feed/import_link', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ link: url })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Post Imported!", data.message || "Video added to top of feed!");
+                    setTimeout(() => window.location.reload(), 1200);
+                } else {
+                    showToast("Import Notice", data.error || "Could not import post.", true);
+                }
+            } catch (err) {
+                showToast("Error", err.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                lucide.createIcons();
+            }
+        }
+
+        // Add Telegram Group as Monitored Source
+        async function addTgGroupAsSource(groupId, encodedTitle, btn) {
+            const groupTitle = decodeURIComponent(encodedTitle);
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i>';
             lucide.createIcons();
 
             try {
@@ -1392,7 +1447,7 @@
                 });
                 const data = await res.json();
                 if (data.success) {
-                    showToast("Source Added!", data.message);
+                    showToast("Source Added!", data.message || "Source added successfully!");
                     setTimeout(() => window.location.reload(), 1200);
                 } else {
                     showToast("Notice", data.error || "Failed to add source", true);
@@ -1407,7 +1462,8 @@
         }
 
         // Import Videos from Group
-        async function importTgGroupVideos(groupId, groupTitle, btn) {
+        async function importTgGroupVideos(groupId, encodedTitle, btn) {
+            const groupTitle = decodeURIComponent(encodedTitle);
             const origHtml = btn.innerHTML;
             btn.disabled = true;
             btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Importing...</span>';
@@ -1417,11 +1473,11 @@
                 const res = await fetch('/admin/api/telegram/import_dialog', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ group_id: groupId, group_title: groupTitle, limit: 100 })
+                    body: JSON.stringify({ group_id: groupId, group_title: groupTitle, limit: 30 })
                 });
                 const data = await res.json();
                 if (data.success) {
-                    showToast("Videos Imported!", data.message || "Imported videos from " + groupTitle);
+                    showToast("Videos Imported!", data.message || ("Imported videos from " + groupTitle));
                     setTimeout(() => window.location.reload(), 1200);
                 } else {
                     showToast("Import Notice", data.error || "No new videos found in group.", true);

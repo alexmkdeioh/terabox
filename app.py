@@ -147,7 +147,7 @@ def init_db():
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS feed_videos (
                         id SERIAL PRIMARY KEY,
-                        source_id INTEGER,
+                        source_id BIGINT,
                         source_name TEXT,
                         title TEXT NOT NULL,
                         video_url TEXT UNIQUE NOT NULL,
@@ -156,6 +156,10 @@ def init_db():
                         discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ''')
+                try:
+                    cursor.execute("ALTER TABLE feed_videos ALTER COLUMN source_id TYPE BIGINT;")
+                except Exception:
+                    pass
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS telegram_auth (
                         id SERIAL PRIMARY KEY,
@@ -1596,23 +1600,49 @@ def health():
 
 def scrape_feed_source(source_url):
     """
-    Universal scraper capable of parsing bio.site, linktree, and video link aggregators.
+    Universal scraper capable of parsing bio.site, linktree, video link aggregators,
+    and Telegram private/public channels via Telethon.
     Returns a list of dicts: [{'title': ..., 'video_url': ..., 'thumbnail_url': ..., 'surl': ...}]
     """
+    clean_src = (source_url or "").strip()
+    if not clean_src:
+        return []
+
+    # 1. Private Telegram channel / group: t.me/c/<chat_id>
+    m_tg_priv = re.search(r't\.me/c/(\d+)', clean_src)
+    if m_tg_priv:
+        chat_id = m_tg_priv.group(1)
+        auth = get_telegram_auth()
+        if auth and auth.get('session_string') and HAS_TELETHON:
+            try:
+                return run_async(async_scrape_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], chat_id, limit=30))
+            except Exception as e:
+                print("Error scraping private Telegram source:", e)
+                return []
+        print(f"Telegram auth not active for private source {source_url}")
+        return []
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9'
     }
     try:
-        # Normalize telegram source URLs to web preview
-        target_url = source_url
-        if 't.me/' in source_url:
-            target_url = re.sub(r'https?://t\.me/(?!s/)([^/]+)', r'https://t.me/s/\1', source_url.strip())
+        # Normalize public telegram source URLs to web preview
+        target_url = clean_src
+        if 't.me/' in clean_src and not 't.me/c/' in clean_src:
+            target_url = re.sub(r'https?://t\.me/(?!s/)([^/]+)', r'https://t.me/s/\1', clean_src)
 
-        r = requests.get(target_url, headers=headers, timeout=15)
+        r = requests.get(target_url, headers=headers, timeout=12)
         if r.status_code != 200:
             print(f"Failed to fetch source {source_url}: status {r.status_code}")
+            # If public telegram failed with requests, try Telethon as fallback
+            if 't.me/' in clean_src:
+                auth = get_telegram_auth()
+                if auth and auth.get('session_string') and HAS_TELETHON:
+                    m_chan = re.search(r't\.me/(?:s/)?([^/\s]+)', clean_src)
+                    if m_chan and m_chan.group(1) != 'c':
+                        return run_async(async_scrape_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], m_chan.group(1), limit=30))
             return []
 
         soup = BeautifulSoup(r.text, 'html.parser')
@@ -1637,16 +1667,19 @@ def scrape_feed_source(source_url):
                     for a in text_el.find_all('a', href=True):
                         links.append(a['href'])
 
-                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http') and not any(d in l.lower() for d in ['t.me/', 'telegram.'])]
                 title = lines[0] if lines else 'Telegram Video'
 
                 for href in links:
-                    clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
-                    is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                    clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                    if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                        continue
+                    clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+                    is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
                     if is_video:
                         raw_items.append({
                             'title': title[:180],
-                            'video_url': href,
+                            'video_url': clean_url,
                             'thumbnail_url': img_src,
                             'surl': clean_surl
                         })
@@ -1664,13 +1697,14 @@ def scrape_feed_source(source_url):
                 if not href:
                     continue
 
-                clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
-                is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
+                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+                is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
 
                 if is_video:
                     raw_items.append({
                         'title': title or 'Video Post',
-                        'video_url': href,
+                        'video_url': clean_url,
                         'thumbnail_url': img_src,
                         'surl': clean_surl
                     })
@@ -1680,8 +1714,11 @@ def scrape_feed_source(source_url):
                 href = (a.get('href') or '').strip()
                 if not href.startswith('http'):
                     continue
-                clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
-                is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
+                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                if any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                    continue
+                clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+                is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
                 if is_video:
                     title = a.get_text(strip=True)
                     if not title:
@@ -1691,7 +1728,7 @@ def scrape_feed_source(source_url):
 
                     raw_items.append({
                         'title': title or 'Video Post',
-                        'video_url': href,
+                        'video_url': clean_url,
                         'thumbnail_url': img_src,
                         'surl': clean_surl
                     })
@@ -1892,21 +1929,44 @@ async def async_resolve_tg_dialog(api_id, api_hash, session_str, query):
         await client.disconnect()
         return None
 
-    query = (query or "").strip()
+    clean_query = (query or "").strip()
     entity = None
+    msg_id = None
 
-    # 1. Pattern: t.me/c/1234567890
-    m_priv = re.search(r't\.me/c/(\d+)', query)
-    if m_priv:
-        peer_id = int(f"-100{m_priv.group(1)}")
+    # 1. Pattern: t.me/c/<chat_id>/<msg_id>
+    m_priv_msg = re.search(r't\.me/c/(\d+)/(\d+)', clean_query)
+    if m_priv_msg:
+        peer_id = int(f"-100{m_priv_msg.group(1)}")
+        msg_id = int(m_priv_msg.group(2))
         try:
             entity = await client.get_entity(peer_id)
         except Exception as e:
-            print("resolve t.me/c error:", e)
+            print("resolve t.me/c/<msg_id> error:", e)
 
-    # 2. Pattern: Pure number or negative ID
-    if not entity and re.match(r'^-?\d+$', query):
-        num = int(query)
+    # 2. Pattern: t.me/c/<chat_id>
+    if not entity:
+        m_priv = re.search(r't\.me/c/(\d+)', clean_query)
+        if m_priv:
+            peer_id = int(f"-100{m_priv.group(1)}")
+            try:
+                entity = await client.get_entity(peer_id)
+            except Exception as e:
+                print("resolve t.me/c error:", e)
+
+    # 3. Pattern: Public post t.me/<channel>/<msg_id>
+    if not entity:
+        m_pub_msg = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_query)
+        if m_pub_msg and m_pub_msg.group(1) != 'c':
+            chan = m_pub_msg.group(1)
+            msg_id = int(m_pub_msg.group(2))
+            try:
+                entity = await client.get_entity(chan)
+            except Exception as e:
+                print("resolve public post error:", e)
+
+    # 4. Pattern: Pure number or negative ID
+    if not entity and re.match(r'^-?\d+$', clean_query):
+        num = int(clean_query)
         peer_id = int(f"-100{abs(num)}") if not str(num).startswith("-100") else num
         try:
             entity = await client.get_entity(peer_id)
@@ -1916,10 +1976,10 @@ async def async_resolve_tg_dialog(api_id, api_hash, session_str, query):
             except Exception as e:
                 print("resolve numeric error:", e)
 
-    # 3. Pattern: Link or @username
+    # 5. Pattern: Link or @username
     if not entity:
         try:
-            entity = await client.get_entity(query)
+            entity = await client.get_entity(clean_query)
         except Exception as e:
             print("resolve get_entity error:", e)
 
@@ -1958,7 +2018,9 @@ async def async_resolve_tg_dialog(api_id, api_hash, session_str, query):
         "is_private": is_private,
         "is_group": is_megagroup or is_basic_group,
         "is_channel": is_broadcast,
-        "username": getattr(entity, 'username', '') or ''
+        "username": getattr(entity, 'username', '') or '',
+        "msg_id": msg_id,
+        "query": clean_query
     }
     await client.disconnect()
     return result
@@ -1974,7 +2036,8 @@ async def async_fetch_tg_message(api_id, api_hash, session_str, chat_id, msg_id)
         peer_id = int(chat_id)
         if peer_id > 0:
             peer_id = int(f"-100{chat_id}")
-        msg = await client.get_messages(peer_id, ids=int(msg_id))
+        entity = await client.get_entity(peer_id)
+        msg = await client.get_messages(entity, ids=int(msg_id))
         if not msg:
             await client.disconnect()
             return None, ""
@@ -1989,36 +2052,85 @@ async def async_fetch_tg_message(api_id, api_hash, session_str, chat_id, msg_id)
         return None, ""
 
 
-async def async_import_tg_group_messages(api_id, api_hash, session_str, group_id, limit=60):
+async def async_scrape_tg_dialog(api_id, api_hash, session_str, group_id, limit=30):
+    """Scrapes recent messages from any Telegram dialog and extracts video links."""
     client = TelegramClient(StringSession(session_str), api_id, api_hash)
     await client.connect()
     if not await client.is_user_authorized():
         await client.disconnect()
         return []
-    messages = []
+
+    found_videos = []
+    seen = set()
     try:
         peer_id = int(group_id)
         if peer_id > 0:
             peer_id = int(f"-100{group_id}")
-        async for msg in client.iter_messages(peer_id, limit=limit):
-            text = msg.text or ""
-            if not text and msg.media:
-                text = getattr(msg, 'message', '') or ''
-            if text:
-                messages.append(text)
+
+        entity = await client.get_entity(peer_id)
+        group_title = getattr(entity, 'title', '') or 'Telegram'
+
+        async for msg in client.iter_messages(entity, limit=limit):
+            text = msg.text or getattr(msg, 'message', '') or ''
+            if not text:
+                continue
+
+            raw_links = re.findall(r'https?://[^\s<>"]+', text)
+            if not raw_links:
+                continue
+
+            # Extract title from text lines
+            cleaned_lines = []
+            for l in text.split('\n'):
+                line = l.strip()
+                if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
+                    continue
+                clean_l = re.sub(r'[*_`#~|]', '', line).strip()
+                if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
+                    cleaned_lines.append(clean_l)
+
+            # Pick the best descriptive title line
+            title = cleaned_lines[0] if cleaned_lines else f"Post #{msg.id}"
+            for candidate in cleaned_lines:
+                cand_lower = candidate.lower()
+                if not any(k in cand_lower for k in ['watch online', 'download', 'terabox', 'join', 'original print', 'full hd', 'channel', 'link']):
+                    title = candidate
+                    break
+
+            for href in raw_links:
+                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                    continue
+                if clean_url in seen:
+                    continue
+                seen.add(clean_url)
+
+                surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+                is_video = bool(surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                if is_video:
+                    found_videos.append({
+                        "title": title[:180],
+                        "video_url": clean_url,
+                        "thumbnail_url": "",
+                        "surl": surl,
+                        "source_name": f"Telegram ({group_title})"
+                    })
     except Exception as e:
-        print("async_import_tg_group_messages error:", e)
+        print("async_scrape_tg_dialog error:", e)
     finally:
         await client.disconnect()
-    return messages
+
+    return found_videos
+
+
+async def async_import_tg_group_messages(api_id, api_hash, session_str, group_id, limit=30):
+    return await async_scrape_tg_dialog(api_id, api_hash, session_str, group_id, limit=limit)
 
 
 def import_single_link(raw_input: str) -> dict:
     """
-    Imports video(s) into the admin feed from:
-    1. Telegram post link (public e.g. t.me/channel/123 or private t.me/c/...)
-    2. Direct TeraBox / video link
-    3. Copied message text containing video links
+    Fast, non-blocking importer for video links, Telegram posts (public & private), and copied text.
+    Instantly extracts clean video URLs, titles, and surls and saves them to the top of feed_videos.
     """
     clean_input = (raw_input or "").strip()
     if not clean_input:
@@ -2029,13 +2141,14 @@ def import_single_link(raw_input: str) -> dict:
     }
 
     found_videos = []
+    seen = set()
 
-    # Case 1: Telegram Post Link (e.g. https://t.me/channel/123 or https://t.me/s/channel/123 or https://t.me/c/12345/678)
+    # Case 1: Telegram Post Link (e.g. https://t.me/c/12345/678 or https://t.me/channel/123)
     tg_match = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_input)
     if tg_match:
         channel, msg_id = tg_match.group(1), tg_match.group(2)
         if channel == 'c':
-            # Private group link: https://t.me/c/CHAT_ID/MSG_ID
+            # Private group/channel link: https://t.me/c/CHAT_ID/MSG_ID
             tg_priv = re.search(r't\.me/c/(\d+)/(\d+)', clean_input)
             if tg_priv:
                 chat_id_val = tg_priv.group(1)
@@ -2047,16 +2160,37 @@ def import_single_link(raw_input: str) -> dict:
                             tg_auth["api_id"], tg_auth["api_hash"], tg_auth["session_string"], chat_id_val, msg_id_val
                         ))
                         if text:
-                            clean_input += "\n" + text
-                            links = re.findall(r'https?://[^\s<>"]+', text)
-                            lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
-                            title = lines[0] if lines else f"Telegram Private Video #{msg_id_val}"
-                            for href in links:
-                                surl = extract_surl(href)
-                                if surl or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox']):
+                            raw_links = re.findall(r'https?://[^\s<>"]+', text)
+                            cleaned_lines = []
+                            for l in text.split('\n'):
+                                line = l.strip()
+                                if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
+                                    continue
+                                clean_l = re.sub(r'[*_`#~|]', '', line).strip()
+                                if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
+                                    cleaned_lines.append(clean_l)
+
+                            title = cleaned_lines[0] if cleaned_lines else f"Telegram Post #{msg_id_val}"
+                            for candidate in cleaned_lines:
+                                cand_lower = candidate.lower()
+                                if not any(k in cand_lower for k in ['watch online', 'download', 'terabox', 'join', 'original print', 'full hd', 'channel', 'link']):
+                                    title = candidate
+                                    break
+
+                            for href in raw_links:
+                                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                                if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                                    continue
+                                if clean_url in seen:
+                                    continue
+                                seen.add(clean_url)
+
+                                surl = extract_surl(clean_url)
+                                is_video = bool(surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                                if is_video:
                                     found_videos.append({
-                                        "title": title,
-                                        "video_url": href,
+                                        "title": title[:180],
+                                        "video_url": clean_url,
                                         "thumbnail_url": "",
                                         "surl": surl,
                                         "source_name": "Telegram (Private)"
@@ -2065,26 +2199,22 @@ def import_single_link(raw_input: str) -> dict:
                         print("Error in private TG fetch:", e)
 
             if not found_videos:
-                # Check if there are other links inside the input string
-                extra_links = re.findall(r'https?://[^\s<>"]+', clean_input)
-                video_links = [l for l in extra_links if not 't.me/' in l and (extract_surl(l) or any(k in l.lower() for k in ['terabox', 'terashare', 'mirrobox']))]
-                if not video_links:
-                    tg_auth = get_telegram_auth()
-                    if not (tg_auth and tg_auth.get("session_string")):
-                        return {
-                            "success": False,
-                            "error": f"Post link '{clean_input}' is from a private Telegram group. Click 'Telegram Setup' in the upper header to connect your account, or paste the video link directly!"
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "error": f"Could not find playable video or TeraBox links inside private Telegram post #{msg_id}."
-                        }
+                tg_auth = get_telegram_auth()
+                if not (tg_auth and tg_auth.get("session_string")):
+                    return {
+                        "success": False,
+                        "error": f"Post link '{clean_input}' is from a private Telegram group. Click 'Telegram Setup' in the header to connect your account!"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "error": f"Could not find playable video or TeraBox links inside private Telegram post #{msg_id}."
+                    }
         else:
             # Public channel post: https://t.me/channel/msg_id
             scrape_url = f"https://t.me/s/{channel}/{msg_id}"
             try:
-                r = requests.get(scrape_url, headers=headers, timeout=10)
+                r = requests.get(scrape_url, headers=headers, timeout=8)
                 if r.status_code == 200:
                     soup = BeautifulSoup(r.text, 'html.parser')
                     text_el = soup.find('div', class_='tgme_widget_message_text')
@@ -2102,16 +2232,23 @@ def import_single_link(raw_input: str) -> dict:
                         for a in text_el.find_all('a', href=True):
                             links.append(a['href'])
 
-                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http') and not any(d in l.lower() for d in ['t.me/', 'telegram.'])]
                     title = lines[0] if lines else f"Telegram Post #{msg_id}"
 
                     for href in links:
-                        clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
-                        is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
+                        clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+                        if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                            continue
+                        if clean_url in seen:
+                            continue
+                        seen.add(clean_url)
+
+                        clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+                        is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
                         if is_video:
                             found_videos.append({
-                                "title": title,
-                                "video_url": href,
+                                "title": title[:180],
+                                "video_url": clean_url,
                                 "thumbnail_url": img_src,
                                 "surl": clean_surl,
                                 "source_name": f"Telegram (@{channel})"
@@ -2119,7 +2256,7 @@ def import_single_link(raw_input: str) -> dict:
             except Exception as e:
                 print("Error scraping public telegram post:", e)
 
-    # Case 2: Extract all video / TeraBox links directly from input
+    # Case 2: Extract all video / TeraBox links directly from text or URL input
     if not found_videos:
         raw_links = re.findall(r'https?://[^\s<>"]+', clean_input)
         if not raw_links:
@@ -2127,26 +2264,34 @@ def import_single_link(raw_input: str) -> dict:
             if surl:
                 raw_links = [f"https://1024terabox.com/s/1{surl}"]
 
+        # Extract title from text lines
+        cleaned_lines = []
+        for l in clean_input.split('\n'):
+            line = l.strip()
+            if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
+                continue
+            clean_l = re.sub(r'[*_`#~|]', '', line).strip()
+            if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
+                cleaned_lines.append(clean_l)
+
+        fallback_title = cleaned_lines[0] if cleaned_lines else None
+
         for href in raw_links:
-            clean_surl = extract_surl(href) or extract_youtube_id(href) or extract_flare_id(href)
-            is_video = bool(clean_surl) or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube', 'youtu.be', 'flare'])
+            clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
+            if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
+                continue
+            if clean_url in seen:
+                continue
+            seen.add(clean_url)
+
+            clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
+            is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube', 'youtu.be', 'flare'])
             if is_video:
-                lines = [l.strip() for l in clean_input.split('\n') if l.strip() and not l.startswith('http')]
-                title = lines[0] if lines else f"Imported Video ({clean_surl or 'TeraBox'})"
-
-                thumbnail = ""
-                try:
-                    info = resolve_universal_stream(href)
-                    if info.get("success") and info.get("title") and not info.get("title").startswith("["):
-                        title = info["title"]
-                        thumbnail = info.get("thumbnail") or ""
-                except Exception:
-                    pass
-
+                title = fallback_title or f"Video ({clean_surl or 'TeraBox'})"
                 found_videos.append({
-                    "title": title,
-                    "video_url": href,
-                    "thumbnail_url": thumbnail,
+                    "title": title[:180],
+                    "video_url": clean_url,
+                    "thumbnail_url": "",
                     "surl": clean_surl,
                     "source_name": "Direct Import"
                 })
@@ -2171,7 +2316,7 @@ def import_single_link(raw_input: str) -> dict:
                     INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     ON CONFLICT (video_url) DO UPDATE SET title = EXCLUDED.title, thumbnail_url = EXCLUDED.thumbnail_url
-                    RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at
+                    RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at;
                 ''', (100, source_name, title, v_url, thumb, surl))
                 row = cursor.fetchone()
                 inserted_records.append({
@@ -2630,17 +2775,87 @@ def admin_api_telegram_import_dialog():
 
     data = request.get_json(silent=True) or request.form or {}
     group_id = data.get('group_id')
-    limit = int(data.get('limit') or 50)
+    group_title = (data.get('group_title') or 'Telegram Group').strip()
+    msg_id = data.get('msg_id')
+    limit = int(data.get('limit') or 30)
 
     if not group_id:
         return jsonify({"success": False, "error": "Group ID is required."}), 400
 
     try:
-        messages = run_async(async_import_tg_group_messages(auth['api_id'], auth['api_hash'], auth['session_string'], group_id, limit=limit))
-        combined_text = "\n\n".join(messages)
-        res = import_single_link(combined_text)
-        return jsonify(res)
+        # Case A: Specific message ID requested
+        if msg_id:
+            text, _ = run_async(async_fetch_tg_message(
+                auth['api_id'], auth['api_hash'], auth['session_string'], group_id, msg_id
+            ))
+            if not text:
+                return jsonify({"success": False, "error": f"Message #{msg_id} was empty or not found."}), 404
+            res = import_single_link(text)
+            return jsonify(res)
+
+        # Case B: Import recent group/channel messages
+        videos = run_async(async_import_tg_group_messages(
+            auth['api_id'], auth['api_hash'], auth['session_string'], group_id, limit=limit
+        ))
+        if not videos:
+            return jsonify({"success": False, "error": f"No playable video or TeraBox links found in recent messages of '{group_title}'."}), 404
+
+        # Insert directly into feed_videos
+        db_type, conn = get_db_connection()
+        inserted_records = []
+        source_name = f"Telegram: {group_title}"
+        clean_gid = int(str(group_id).replace('-100', '')) if str(group_id).replace('-100', '').isdigit() else 100
+
+        with conn:
+            cursor = conn.cursor()
+            for v in reversed(videos):
+                title = v['title']
+                v_url = v['video_url']
+                surl = v.get('surl') or extract_surl(v_url)
+                thumb = v.get('thumbnail_url', '')
+
+                if db_type == "postgres":
+                    cursor.execute('''
+                        INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (video_url) DO UPDATE SET title = EXCLUDED.title
+                        RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at;
+                    ''', (clean_gid, source_name, title, v_url, thumb, surl))
+                    row = cursor.fetchone()
+                    inserted_records.append({
+                        "id": row[0],
+                        "source_name": row[1],
+                        "title": row[2],
+                        "video_url": row[3],
+                        "thumbnail_url": row[4],
+                        "surl": row[5],
+                        "discovered_at": str(row[6])
+                    })
+                else:
+                    cursor.execute('''
+                        INSERT OR REPLACE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (clean_gid, source_name, title, v_url, thumb, surl))
+                    vid_id = cursor.lastrowid
+                    inserted_records.append({
+                        "id": vid_id,
+                        "source_name": source_name,
+                        "title": title,
+                        "video_url": v_url,
+                        "thumbnail_url": thumb,
+                        "surl": surl,
+                        "discovered_at": "Just now"
+                    })
+            conn.commit()
+        conn.close()
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully imported {len(inserted_records)} video(s) from '{group_title}' to top of feed!",
+            "videos": inserted_records
+        })
     except Exception as e:
+        print("import_dialog error:", e)
         return jsonify({"success": False, "error": str(e)}), 500
 
 
@@ -2702,18 +2917,10 @@ def admin_api_telegram_add_source():
             conn.commit()
         conn.close()
 
-        # Also trigger immediate import of messages in background
-        auth = get_telegram_auth()
-        if auth and auth.get('session_string'):
-            def bg_import():
-                msgs = run_async(async_import_tg_group_messages(
-                    auth['api_id'], auth['api_hash'], auth['session_string'], group_id, 100
-                ))
-                if msgs:
-                    import_single_link("\n\n".join(msgs))
-            threading.Thread(target=bg_import, daemon=True).start()
+        # Run background sync immediately using the new scrape_feed_source
+        threading.Thread(target=sync_feed_sources, daemon=True).start()
 
-        return jsonify({"success": True, "message": f"'{group_title}' added as active source! Importing videos in background."})
+        return jsonify({"success": True, "message": f"'{group_title}' added as active source! Syncing videos in background."})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
 
