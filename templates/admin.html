@@ -50,16 +50,32 @@
                 </div>
             </div>
 
-            <div class="flex items-center gap-3">
-                <div class="flex items-center gap-1.5 text-xs px-3 py-1 rounded-full border {% if 'PostgreSQL' in stats.db_type %}bg-emerald-950/70 text-emerald-300 border-emerald-700/60 shadow-glow{% else %}bg-amber-950/70 text-amber-300 border-amber-700/60{% endif %}">
+            <div class="flex items-center gap-2 sm:gap-3">
+                <!-- Telegram Auth Setup Button -->
+                <button onclick="openTelegramModal()" id="tgHeaderBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold {% if telegram_auth %}bg-emerald-950/60 text-emerald-300 border border-emerald-700/60 hover:bg-emerald-900/60{% else %}bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border{% endif %} transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="Telegram Auth Setup">
+                    <i data-lucide="send" class="w-3.5 h-3.5 {% if telegram_auth %}text-emerald-400{% else %}text-brand-400{% endif %}"></i>
+                    <span class="hidden md:inline">{% if telegram_auth %}Telegram Connected{% else %}Telegram Setup{% endif %}</span>
+                    {% if telegram_auth %}
+                    <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    {% endif %}
+                </button>
+
+                <!-- Search History Logs Button (Only in up side) -->
+                <button onclick="openLogsModal()" id="openLogsBtn" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-brand-600/20 hover:bg-brand-600/30 text-brand-300 border border-brand-500/40 transition flex items-center gap-1.5 cursor-pointer shadow-sm" title="View Search History Logs">
+                    <i data-lucide="history" class="w-3.5 h-3.5 text-brand-400"></i>
+                    <span>Search Logs</span>
+                    <span class="px-1.5 py-0.5 rounded-full text-[10px] bg-brand-500/30 text-brand-200 font-mono font-bold">{{ stats.total_searches }}</span>
+                </button>
+
+                <div class="hidden lg:flex items-center gap-1.5 text-xs px-3 py-1 rounded-full border {% if 'PostgreSQL' in stats.db_type %}bg-emerald-950/70 text-emerald-300 border-emerald-700/60 shadow-glow{% else %}bg-amber-950/70 text-amber-300 border-amber-700/60{% endif %}">
                     <span class="w-2 h-2 rounded-full {% if 'PostgreSQL' in stats.db_type %}bg-emerald-400 animate-ping{% else %}bg-amber-400{% endif %}"></span>
                     <span class="font-semibold">{{ stats.db_type }}</span>
                 </div>
-                <a href="/" target="_blank" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border transition flex items-center gap-1.5">
+                <a href="/" target="_blank" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border transition flex items-center gap-1.5">
                     <i data-lucide="external-link" class="w-3.5 h-3.5 text-brand-400"></i>
                     <span class="hidden sm:inline">Live Player</span>
                 </a>
-                <a href="/admin/logout" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 transition flex items-center gap-1.5">
+                <a href="/admin/logout" class="px-3 py-1.5 rounded-xl text-xs font-semibold bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-800/50 transition flex items-center gap-1.5">
                     <i data-lucide="log-out" class="w-3.5 h-3.5"></i>
                     <span>Logout</span>
                 </a>
@@ -320,30 +336,44 @@
             </div>
         </div>
 
-        <!-- ==================== SEARCH HISTORY LOGS TABLE ==================== -->
-        <div class="bg-dark-card border border-dark-border rounded-2xl p-6 shadow-xl flex flex-col gap-4">
-            
-            <!-- Table Header Tools -->
-            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                    <h2 class="font-heading font-bold text-lg text-white">Search History Log</h2>
-                    <p class="text-xs text-slate-400">Real-time log of every link pasted and searched by visitors</p>
-                </div>
+    </main>
 
+    <!-- ==================== SEARCH HISTORY LOGS MODAL (OPENED FROM UP SIDE BUTTON) ==================== -->
+    <div id="logsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
+        <div class="bg-[#0f172a] border border-dark-border rounded-3xl max-w-6xl w-full p-5 sm:p-6 shadow-2xl flex flex-col gap-4 max-h-[92vh] overflow-hidden">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-dark-border shrink-0">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-9 h-9 rounded-xl bg-brand-600/20 text-brand-400 flex items-center justify-center">
+                        <i data-lucide="history" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h3 class="font-heading font-bold text-base sm:text-lg text-white">Search History Log</h3>
+                            <span class="px-2 py-0.5 rounded-full text-[10px] font-mono bg-brand-500/20 text-brand-300 font-bold">{{ stats.total_searches }} total</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400">Real-time log of every link searched and streamed by visitors</p>
+                    </div>
+                </div>
+                
                 <div class="flex items-center gap-2">
-                    <a href="/admin/export/csv" class="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition flex items-center gap-1.5">
+                    <a href="/admin/export/csv" class="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition flex items-center gap-1.5">
                         <i data-lucide="download" class="w-3.5 h-3.5"></i>
-                        <span>Export CSV</span>
+                        <span class="hidden sm:inline">Export CSV</span>
                     </a>
-                    <a href="/admin/clear" onclick="return confirm('Are you sure you want to delete all search logs?');" class="px-3.5 py-2 bg-dark-cardAlt hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-dark-border rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
+                    <a href="/admin/clear" onclick="return confirm('Are you sure you want to delete all search logs?');" class="px-3 py-1.5 bg-dark-cardAlt hover:bg-rose-950 text-slate-400 hover:text-rose-300 border border-dark-border rounded-xl text-xs font-semibold transition flex items-center gap-1.5">
                         <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                        <span>Clear All Logs</span>
+                        <span class="hidden sm:inline">Clear All</span>
                     </a>
+                    <button onclick="closeLogsModal()" class="p-2 rounded-xl bg-dark-cardAlt hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer">
+                        <i data-lucide="x" class="w-4 h-4"></i>
+                    </button>
                 </div>
             </div>
 
             <!-- Search Filter Input -->
-            <div class="relative">
+            <div class="relative shrink-0">
                 <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-3"></i>
                 <input 
                     type="text" 
@@ -353,10 +383,10 @@
                 >
             </div>
 
-            <!-- Table -->
-            <div class="overflow-x-auto border border-dark-border/60 rounded-xl">
+            <!-- Table (Scrollable Container) -->
+            <div class="overflow-x-auto overflow-y-auto border border-dark-border/60 rounded-2xl flex-1 max-h-[60vh]">
                 <table class="w-full text-left text-xs text-slate-300">
-                    <thead class="bg-dark-cardAlt/80 text-slate-400 font-semibold border-b border-dark-border uppercase text-[10px] tracking-wider">
+                    <thead class="bg-dark-cardAlt/90 text-slate-400 font-semibold border-b border-dark-border uppercase text-[10px] tracking-wider sticky top-0 backdrop-blur-sm z-10">
                         <tr>
                             <th class="p-3.5">ID</th>
                             <th class="p-3.5">Time</th>
@@ -416,9 +446,175 @@
                     </tbody>
                 </table>
             </div>
-        </div>
 
-    </main>
+            <!-- Modal Footer -->
+            <div class="flex items-center justify-end pt-2 border-t border-dark-border shrink-0">
+                <button onclick="closeLogsModal()" class="px-4 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 rounded-xl text-xs transition cursor-pointer">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== TELEGRAM AUTH SETUP MODAL ==================== -->
+    <div id="telegramAuthModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6">
+        <div class="bg-[#0f172a] border border-dark-border rounded-3xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-5 max-h-[92vh] overflow-y-auto">
+            
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between pb-3 border-b border-dark-border">
+                <div class="flex items-center gap-3">
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500 to-indigo-600 text-white flex items-center justify-center shadow-md">
+                        <i data-lucide="send" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-heading font-bold text-base text-white">Telegram Auth Setup</h3>
+                        <p class="text-[11px] text-slate-400">Connect account to read private groups, channels & posts</p>
+                    </div>
+                </div>
+                <button onclick="closeTelegramModal()" class="p-1.5 rounded-xl bg-dark-cardAlt hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Live Status Indicator Box -->
+            <div id="tgStatusBox">
+                {% if telegram_auth and telegram_auth.is_active %}
+                <div class="p-3.5 bg-emerald-950/50 border border-emerald-800/60 rounded-2xl flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                        <div>
+                            <div class="text-xs font-bold text-white">Connected as {{ telegram_auth.user_name }}</div>
+                            <div class="text-[11px] text-emerald-300 font-mono">+{{ telegram_auth.phone }} (API ID: {{ telegram_auth.api_id }})</div>
+                        </div>
+                    </div>
+                    <button onclick="handleTgDisconnect()" class="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-semibold transition cursor-pointer">
+                        Disconnect
+                    </button>
+                </div>
+                {% else %}
+                <div class="p-3.5 bg-slate-900/80 border border-dark-border rounded-2xl flex items-center gap-2.5">
+                    <span class="w-2.5 h-2.5 rounded-full bg-slate-500 shrink-0"></span>
+                    <div class="text-xs text-slate-300">
+                        <span class="font-bold text-white">Not Connected.</span> Connect with your API credentials below to enable private group scraping.
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Connect Form (Shown when not connected or re-connecting) -->
+            <div id="tgConnectForm" class="{% if telegram_auth and telegram_auth.is_active %}hidden{% endif %} flex flex-col gap-4">
+                
+                <!-- Credentials Section (pre-filled from screenshot: 37318289 / c5357ba72831f3345f35683634b6409b) -->
+                <div class="bg-[#070b14] border border-dark-border/80 rounded-2xl p-4 flex flex-col gap-3">
+                    <div class="flex items-center justify-between">
+                        <h4 class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                            <i data-lucide="key" class="w-3.5 h-3.5 text-brand-400"></i>
+                            <span>App Credentials (from my.telegram.org)</span>
+                        </h4>
+                        <span class="text-[10px] text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-md border border-emerald-800/50 font-medium">Configured</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                            <label class="text-[11px] text-slate-400 block mb-1">App API ID</label>
+                            <input 
+                                type="text" 
+                                id="tgApiId" 
+                                value="{{ (telegram_auth.api_id if telegram_auth else '') or 37318289 }}" 
+                                class="w-full bg-[#0f172a] border border-dark-border rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                            >
+                        </div>
+                        <div>
+                            <label class="text-[11px] text-slate-400 block mb-1">App API Hash</label>
+                            <input 
+                                type="text" 
+                                id="tgApiHash" 
+                                value="{{ (telegram_auth.api_hash if telegram_auth else '') or 'c5357ba72831f3345f35683634b6409b' }}" 
+                                class="w-full bg-[#0f172a] border border-dark-border rounded-xl px-3 py-2 text-xs text-white font-mono focus:outline-none focus:border-brand-500"
+                            >
+                        </div>
+                    </div>
+
+                    <!-- Step 1: Phone Number -->
+                    <div class="pt-2 border-t border-dark-border/60">
+                        <label class="text-[11px] text-slate-400 block mb-1">Your Telegram Phone Number <span class="text-rose-400">*</span></label>
+                        <div class="flex gap-2">
+                            <input 
+                                type="tel" 
+                                id="tgPhone" 
+                                placeholder="+919876543210 (include country code)" 
+                                value="{{ telegram_auth.phone if telegram_auth else '' }}" 
+                                class="flex-1 bg-[#0f172a] border border-dark-border rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-500 font-mono"
+                            >
+                            <button type="button" onclick="handleSendTgCode()" id="tgSendCodeBtn" class="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold shadow transition flex items-center gap-1.5 cursor-pointer shrink-0">
+                                <i data-lucide="arrow-right" class="w-3.5 h-3.5"></i>
+                                <span>Send Login Code</span>
+                            </button>
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-1">Telegram will send a 5-digit authorization code directly to your Telegram app.</p>
+                    </div>
+                </div>
+
+                <!-- Step 2: Verification Code & 2FA (hidden until code is sent) -->
+                <div id="tgVerifyStep" class="hidden bg-[#070b14] border border-brand-500/40 rounded-2xl p-4 flex flex-col gap-3">
+                    <h4 class="text-xs font-bold text-brand-300 flex items-center gap-1.5">
+                        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-brand-400"></i>
+                        <span>Step 2: Enter Telegram Login Code</span>
+                    </h4>
+
+                    <div>
+                        <label class="text-[11px] text-slate-400 block mb-1">Telegram Verification Code <span class="text-rose-400">*</span></label>
+                        <input 
+                            type="text" 
+                            id="tgCode" 
+                            placeholder="e.g. 12345" 
+                            class="w-full bg-[#0f172a] border border-dark-border rounded-xl px-3 py-2 text-xs text-white font-mono tracking-widest text-center text-sm font-bold focus:outline-none focus:border-brand-500"
+                        >
+                    </div>
+
+                    <div id="tg2faGroup" class="hidden">
+                        <label class="text-[11px] text-amber-300 block mb-1">2FA Cloud Password (Optional)</label>
+                        <input 
+                            type="password" 
+                            id="tgPassword" 
+                            placeholder="Enter Two-Step verification password" 
+                            class="w-full bg-[#0f172a] border border-amber-600/50 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-400"
+                        >
+                    </div>
+
+                    <button type="button" onclick="handleVerifyTgCode()" id="tgVerifyBtn" class="w-full py-2.5 bg-gradient-to-r from-brand-600 to-indigo-600 hover:from-brand-500 hover:to-indigo-500 text-white rounded-xl text-xs font-semibold shadow transition flex items-center justify-center gap-1.5 cursor-pointer">
+                        <i data-lucide="check-circle" class="w-3.5 h-3.5"></i>
+                        <span>Verify & Connect Telegram</span>
+                    </button>
+                </div>
+
+            </div>
+
+            <!-- Connected View: Groups & Channels List -->
+            <div id="tgConnectedBox" class="{% if not (telegram_auth and telegram_auth.is_active) %}hidden{% endif %} flex flex-col gap-3">
+                <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-bold text-slate-300">My Telegram Groups & Channels</h4>
+                    <button onclick="loadTelegramDialogs()" class="text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 cursor-pointer">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i>
+                        <span>Refresh List</span>
+                    </button>
+                </div>
+                <div id="tgDialogsList" class="flex flex-col gap-2 max-h-60 overflow-y-auto">
+                    <div class="text-center py-4 text-xs text-slate-500">
+                        Click "Refresh List" to view your available groups & channels.
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="flex items-center justify-end pt-3 border-t border-dark-border">
+                <button onclick="closeTelegramModal()" class="px-4 py-1.5 bg-dark-cardAlt hover:bg-slate-800 text-slate-300 rounded-xl text-xs transition cursor-pointer">
+                    Close
+                </button>
+            </div>
+
+        </div>
+    </div>
 
     <!-- ==================== MANAGE SOURCES MODAL ==================== -->
     <div id="sourcesModal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
@@ -696,6 +892,252 @@
 
         function closeSourcesModal() {
             document.getElementById('sourcesModal').classList.add('hidden');
+        }
+
+        // ----------------- SEARCH LOGS MODAL CONTROLS -----------------
+        function openLogsModal() {
+            const modal = document.getElementById('logsModal');
+            if (modal) modal.classList.remove('hidden');
+        }
+
+        function closeLogsModal() {
+            const modal = document.getElementById('logsModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        // ----------------- TELEGRAM AUTH MODAL CONTROLS -----------------
+        function openTelegramModal() {
+            const modal = document.getElementById('telegramAuthModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                loadTelegramStatus();
+            }
+        }
+
+        function closeTelegramModal() {
+            const modal = document.getElementById('telegramAuthModal');
+            if (modal) modal.classList.add('hidden');
+        }
+
+        // Load Telegram Status
+        async function loadTelegramStatus() {
+            try {
+                const res = await fetch('/admin/api/telegram/status');
+                const data = await res.json();
+                const statusBox = document.getElementById('tgStatusBox');
+                const connectForm = document.getElementById('tgConnectForm');
+                const connectedBox = document.getElementById('tgConnectedBox');
+                const headerBtn = document.getElementById('tgHeaderBtn');
+
+                if (data.connected) {
+                    if (statusBox) {
+                        statusBox.innerHTML = `
+                            <div class="p-3.5 bg-emerald-950/50 border border-emerald-800/60 rounded-2xl flex items-center justify-between gap-3">
+                                <div class="flex items-center gap-2.5">
+                                    <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                                    <div>
+                                        <div class="text-xs font-bold text-white">Connected as ${data.user_name}</div>
+                                        <div class="text-[11px] text-emerald-300 font-mono">+${data.phone} (API ID: ${data.api_id})</div>
+                                    </div>
+                                </div>
+                                <button onclick="handleTgDisconnect()" class="px-3 py-1.5 bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/50 rounded-xl text-xs font-semibold transition cursor-pointer">
+                                    Disconnect
+                                </button>
+                            </div>
+                        `;
+                    }
+                    if (connectForm) connectForm.classList.add('hidden');
+                    if (connectedBox) connectedBox.classList.remove('hidden');
+                    if (headerBtn) {
+                        headerBtn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-700/60 hover:bg-emerald-900/60 transition flex items-center gap-1.5 cursor-pointer shadow-sm";
+                        headerBtn.innerHTML = '<i data-lucide="send" class="w-3.5 h-3.5 text-emerald-400"></i><span class="hidden md:inline">Telegram Connected</span><span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>';
+                        lucide.createIcons();
+                    }
+                    loadTelegramDialogs();
+                } else {
+                    if (statusBox) {
+                        statusBox.innerHTML = `
+                            <div class="p-3.5 bg-slate-900/80 border border-dark-border rounded-2xl flex items-center gap-2.5">
+                                <span class="w-2.5 h-2.5 rounded-full bg-slate-500 shrink-0"></span>
+                                <div class="text-xs text-slate-300">
+                                    <span class="font-bold text-white">Not Connected.</span> Connect your Telegram account below to enable private group scraping.
+                                </div>
+                            </div>
+                        `;
+                    }
+                    if (connectForm) connectForm.classList.remove('hidden');
+                    if (connectedBox) connectedBox.classList.add('hidden');
+                    if (headerBtn) {
+                        headerBtn.className = "px-3 py-1.5 rounded-xl text-xs font-semibold bg-dark-cardAlt hover:bg-slate-800 text-slate-300 border border-dark-border transition flex items-center gap-1.5 cursor-pointer shadow-sm";
+                        headerBtn.innerHTML = '<i data-lucide="send" class="w-3.5 h-3.5 text-brand-400"></i><span class="hidden md:inline">Telegram Setup</span>';
+                        lucide.createIcons();
+                    }
+                }
+            } catch (err) {
+                console.error("loadTelegramStatus error:", err);
+            }
+        }
+
+        // Send Telegram Code
+        async function handleSendTgCode() {
+            const phone = document.getElementById('tgPhone').value.trim();
+            const api_id = document.getElementById('tgApiId').value.trim();
+            const api_hash = document.getElementById('tgApiHash').value.trim();
+            const btn = document.getElementById('tgSendCodeBtn');
+
+            if (!phone) {
+                showToast("Phone Required", "Please enter your phone number with country code (e.g. +91...)", true);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Sending Code...</span>';
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/admin/api/telegram/send_code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, api_id, api_hash })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Code Sent!", data.message);
+                    document.getElementById('tgVerifyStep').classList.remove('hidden');
+                    document.getElementById('tgCode').focus();
+                } else {
+                    showToast("Failed to Send Code", data.error || "Unknown error", true);
+                }
+            } catch (err) {
+                showToast("Error", err.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="arrow-right" class="w-3.5 h-3.5"></i><span>Send Login Code</span>';
+                lucide.createIcons();
+            }
+        }
+
+        // Verify Telegram Code
+        async function handleVerifyTgCode() {
+            const code = document.getElementById('tgCode').value.trim();
+            const password = document.getElementById('tgPassword').value.trim();
+            const btn = document.getElementById('tgVerifyBtn');
+
+            if (!code) {
+                showToast("Code Required", "Please enter the verification code received on Telegram.", true);
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-3.5 h-3.5 animate-spin"></i><span>Verifying...</span>';
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/admin/api/telegram/verify_code', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ code, password })
+                });
+                const data = await res.json();
+                if (data.needs_2fa) {
+                    document.getElementById('tg2faGroup').classList.remove('hidden');
+                    showToast("2FA Password Required", data.message, false);
+                    document.getElementById('tgPassword').focus();
+                } else if (data.success) {
+                    showToast("Telegram Connected!", data.message);
+                    setTimeout(() => {
+                        loadTelegramStatus();
+                    }, 800);
+                } else {
+                    showToast("Verification Failed", data.error || "Invalid code", true);
+                }
+            } catch (err) {
+                showToast("Error", err.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="check-circle" class="w-3.5 h-3.5"></i><span>Verify & Connect Telegram</span>';
+                lucide.createIcons();
+            }
+        }
+
+        // Disconnect Telegram
+        async function handleTgDisconnect() {
+            if (!confirm("Are you sure you want to disconnect your Telegram account?")) return;
+            try {
+                const res = await fetch('/admin/api/telegram/disconnect', { method: 'POST' });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Disconnected", data.message);
+                    loadTelegramStatus();
+                }
+            } catch (err) {
+                showToast("Error", err.message, true);
+            }
+        }
+
+        // Load Telegram Dialogs
+        async function loadTelegramDialogs() {
+            const container = document.getElementById('tgDialogsList');
+            if (!container) return;
+            container.innerHTML = '<div class="text-center py-4 text-xs text-slate-500"><i data-lucide="loader" class="w-4 h-4 animate-spin mx-auto mb-1"></i>Loading groups & channels...</div>';
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/admin/api/telegram/dialogs');
+                const data = await res.json();
+                if (data.success && data.dialogs && data.dialogs.length > 0) {
+                    container.innerHTML = data.dialogs.map(d => `
+                        <div class="p-3 bg-[#070b14] border border-dark-border rounded-xl flex items-center justify-between gap-3">
+                            <div class="min-w-0">
+                                <div class="text-xs font-bold text-white truncate">${d.title}</div>
+                                <div class="text-[10px] text-slate-400">${d.is_channel ? 'Channel' : 'Group'} • ID: ${d.id}</div>
+                            </div>
+                            <button onclick="importTgGroupVideos(${d.id}, '${escapeHtml(d.title)}', this)" class="px-2.5 py-1.5 bg-brand-600/20 hover:bg-brand-600 text-brand-300 hover:text-white border border-brand-500/40 rounded-lg text-xs font-semibold transition cursor-pointer shrink-0 flex items-center gap-1">
+                                <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i>
+                                <span>Import Videos</span>
+                            </button>
+                        </div>
+                    `).join('');
+                    lucide.createIcons();
+                } else {
+                    container.innerHTML = '<div class="text-center py-4 text-xs text-slate-500">No groups or channels found on this account.</div>';
+                }
+            } catch (err) {
+                container.innerHTML = `<div class="text-center py-4 text-xs text-rose-400">Failed to load groups: ${err.message}</div>`;
+            }
+        }
+
+        // Import Videos from Group
+        async function importTgGroupVideos(groupId, groupTitle, btn) {
+            const origHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-3 h-3 animate-spin"></i><span>Importing...</span>';
+            lucide.createIcons();
+
+            try {
+                const res = await fetch('/admin/api/telegram/import_dialog', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ group_id: groupId, group_title: groupTitle, limit: 50 })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    showToast("Videos Imported!", data.message || "Imported videos from " + groupTitle);
+                    setTimeout(() => window.location.reload(), 1200);
+                } else {
+                    showToast("Import Notice", data.error || "No new videos found in group.", true);
+                }
+            } catch (err) {
+                showToast("Error", err.message, true);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                lucide.createIcons();
+            }
+        }
+
+        function escapeHtml(str) {
+            return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
         }
 
         // ----------------- ADD NEW SOURCE -----------------

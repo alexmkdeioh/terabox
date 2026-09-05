@@ -24,6 +24,37 @@ try:
 except ImportError:
     HAS_BS4 = False
 
+import asyncio
+import concurrent.futures
+try:
+    from telethon import TelegramClient
+    from telethon.sessions import StringSession
+    from telethon.errors import (
+        SessionPasswordNeededError,
+        PhoneCodeInvalidError,
+        PhoneCodeExpiredError,
+        PhoneNumberInvalidError,
+        ApiIdInvalidError,
+    )
+    HAS_TELETHON = True
+except ImportError:
+    HAS_TELETHON = False
+
+DEFAULT_TG_API_ID = int(os.environ.get("TELEGRAM_API_ID", 37318289))
+DEFAULT_TG_API_HASH = os.environ.get("TELEGRAM_API_HASH", "c5357ba72831f3345f35683634b6409b")
+PENDING_TG_LOGINS = {}
+
+def run_async(coro):
+    """Safely executes an async coroutine synchronously inside Flask."""
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = None
+    if loop and loop.is_running():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            return executor.submit(lambda: asyncio.run(coro)).result()
+    else:
+        return asyncio.run(coro)
 
 _YTDLP_MODULE = None
 
@@ -124,6 +155,19 @@ def init_db():
                         discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS telegram_auth (
+                        id SERIAL PRIMARY KEY,
+                        api_id INTEGER,
+                        api_hash TEXT,
+                        session_string TEXT NOT NULL,
+                        phone TEXT,
+                        user_name TEXT,
+                        is_active BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                ''')
                 cursor.execute("SELECT COUNT(*) FROM feed_sources")
                 if cursor.fetchone()[0] == 0:
                     cursor.execute('''
@@ -165,6 +209,19 @@ def init_db():
                         thumbnail_url TEXT,
                         surl TEXT,
                         discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS telegram_auth (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        api_id INTEGER,
+                        api_hash TEXT,
+                        session_string TEXT NOT NULL,
+                        phone TEXT,
+                        user_name TEXT,
+                        is_active INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
                 cursor.execute("SELECT COUNT(*) FROM feed_sources")
@@ -1653,6 +1710,168 @@ def scrape_feed_source(source_url):
         return []
 
 
+def get_telegram_auth():
+    """Retrieve saved Telegram auth from database."""
+    try:
+        db_type, conn = get_db_connection()
+        if db_type == "postgres" and HAS_PSYCOPG2:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+        if db_type == "postgres":
+            cursor.execute("SELECT * FROM telegram_auth WHERE is_active = TRUE ORDER BY id DESC LIMIT 1")
+        else:
+            cursor.execute("SELECT * FROM telegram_auth WHERE is_active = 1 ORDER BY id DESC LIMIT 1")
+        row = cursor.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        print("get_telegram_auth error:", e)
+        return None
+
+
+def save_telegram_auth(api_id, api_hash, session_string, phone, user_name):
+    """Save or update active Telegram authorization in database."""
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            if db_type == "postgres":
+                cursor.execute("DELETE FROM telegram_auth")
+                cursor.execute('''
+                    INSERT INTO telegram_auth (api_id, api_hash, session_string, phone, user_name, is_active)
+                    VALUES (%s, %s, %s, %s, %s, TRUE)
+                ''', (api_id, api_hash, session_string, phone, user_name))
+            else:
+                cursor.execute("DELETE FROM telegram_auth")
+                cursor.execute('''
+                    INSERT INTO telegram_auth (api_id, api_hash, session_string, phone, user_name, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                ''', (api_id, api_hash, session_string, phone, user_name))
+            conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print("save_telegram_auth error:", e)
+        return False
+
+
+def clear_telegram_auth():
+    """Clear active Telegram authorization from database."""
+    try:
+        db_type, conn = get_db_connection()
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM telegram_auth")
+            conn.commit()
+        conn.close()
+        return True
+    except Exception as e:
+        print("clear_telegram_auth error:", e)
+        return False
+
+
+async def async_send_tg_code(api_id, api_hash, phone):
+    client = TelegramClient(StringSession(), api_id, api_hash)
+    await client.connect()
+    res = await client.send_code_request(phone)
+    session_str = client.session.save()
+    phone_code_hash = res.phone_code_hash
+    await client.disconnect()
+    return phone_code_hash, session_str
+
+
+async def async_verify_tg_code(api_id, api_hash, session_str, phone, code, phone_code_hash, password=None):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    await client.connect()
+    try:
+        await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
+    except SessionPasswordNeededError:
+        if not password:
+            saved = client.session.save()
+            await client.disconnect()
+            return {"success": False, "needs_2fa": True, "session_str": saved}
+        await client.sign_in(password=password)
+
+    me = await client.get_me()
+    first_name = getattr(me, 'first_name', '') or ''
+    last_name = getattr(me, 'last_name', '') or ''
+    user_name = f"{first_name} {last_name}".strip() or "Telegram User"
+    user_phone = getattr(me, 'phone', '') or phone
+    final_session_str = client.session.save()
+    await client.disconnect()
+    return {"success": True, "name": user_name, "phone": user_phone, "session_str": final_session_str}
+
+
+async def async_get_tg_dialogs(api_id, api_hash, session_str):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        return []
+    dialogs = []
+    async for dialog in client.iter_dialogs(limit=50):
+        if dialog.is_channel or dialog.is_group:
+            dialogs.append({
+                "id": dialog.id,
+                "title": dialog.name or "Untitled",
+                "is_channel": dialog.is_channel,
+                "is_group": dialog.is_group
+            })
+    await client.disconnect()
+    return dialogs
+
+
+async def async_fetch_tg_message(api_id, api_hash, session_str, chat_id, msg_id):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        return None, ""
+    try:
+        peer_id = int(chat_id)
+        if peer_id > 0:
+            peer_id = int(f"-100{chat_id}")
+        msg = await client.get_messages(peer_id, ids=int(msg_id))
+        if not msg:
+            await client.disconnect()
+            return None, ""
+        text = msg.text or ""
+        if not text and msg.media:
+            text = getattr(msg, 'message', '') or ''
+        await client.disconnect()
+        return text, ""
+    except Exception as e:
+        print("async_fetch_tg_message error:", e)
+        await client.disconnect()
+        return None, ""
+
+
+async def async_import_tg_group_messages(api_id, api_hash, session_str, group_id, limit=60):
+    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+    await client.connect()
+    if not await client.is_user_authorized():
+        await client.disconnect()
+        return []
+    messages = []
+    try:
+        peer_id = int(group_id)
+        if peer_id > 0:
+            peer_id = int(f"-100{group_id}")
+        async for msg in client.iter_messages(peer_id, limit=limit):
+            text = msg.text or ""
+            if not text and msg.media:
+                text = getattr(msg, 'message', '') or ''
+            if text:
+                messages.append(text)
+    except Exception as e:
+        print("async_import_tg_group_messages error:", e)
+    finally:
+        await client.disconnect()
+    return messages
+
+
 def import_single_link(raw_input: str) -> dict:
     """
     Imports video(s) into the admin feed from:
@@ -1670,65 +1889,56 @@ def import_single_link(raw_input: str) -> dict:
 
     found_videos = []
 
-    # Case 1: Telegram Post Link (e.g. https://t.me/channel/123 or https://t.me/s/channel/123)
+    # Case 1: Telegram Post Link (e.g. https://t.me/channel/123 or https://t.me/s/channel/123 or https://t.me/c/12345/678)
     tg_match = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_input)
     if tg_match:
         channel, msg_id = tg_match.group(1), tg_match.group(2)
         if channel == 'c':
             # Private group link: https://t.me/c/CHAT_ID/MSG_ID
-            config_file = os.path.join(os.path.dirname(__file__), "telegram_config.json")
-            session_file = os.path.join(os.path.dirname(__file__), "telegram_session.session")
-            if os.path.exists(config_file) and os.path.exists(session_file):
-                try:
-                    with open(config_file, "r", encoding="utf-8") as f:
-                        cfg = json.load(f)
-                    api_id = cfg.get("api_id")
-                    api_hash = cfg.get("api_hash")
-                    from telethon import TelegramClient
-                    import asyncio
-
-                    async def get_private_msg():
-                        client = TelegramClient(os.path.join(os.path.dirname(__file__), "telegram_session"), api_id, api_hash)
-                        await client.connect()
-                        if await client.is_user_authorized():
-                            chat_num = int(f"-100{msg_id}") if not msg_id else int(f"-100{channel}")
-                            real_msg_id = int(tg_match.group(2))
-                            msg = await client.get_messages(chat_num, ids=real_msg_id)
-                            await client.disconnect()
-                            return msg
-                        await client.disconnect()
-                        return None
-
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    msg = loop.run_until_complete(get_private_msg())
-                    if msg:
-                        text = msg.text or ""
-                        links = re.findall(r'https?://[^\s<>"]+', text)
-                        lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
-                        title = lines[0] if lines else f"Telegram Private Video #{msg_id}"
-                        for href in links:
-                            surl = extract_surl(href)
-                            if surl or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox']):
-                                found_videos.append({
-                                    "title": title,
-                                    "video_url": href,
-                                    "thumbnail_url": "",
-                                    "surl": surl,
-                                    "source_name": "Telegram (Private)"
-                                })
-                except Exception as e:
-                    print("Error fetching private telegram post:", e)
+            tg_priv = re.search(r't\.me/c/(\d+)/(\d+)', clean_input)
+            if tg_priv:
+                chat_id_val = tg_priv.group(1)
+                msg_id_val = tg_priv.group(2)
+                tg_auth = get_telegram_auth()
+                if tg_auth and tg_auth.get("session_string") and HAS_TELETHON:
+                    try:
+                        text, _ = run_async(async_fetch_tg_message(
+                            tg_auth["api_id"], tg_auth["api_hash"], tg_auth["session_string"], chat_id_val, msg_id_val
+                        ))
+                        if text:
+                            clean_input += "\n" + text
+                            links = re.findall(r'https?://[^\s<>"]+', text)
+                            lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
+                            title = lines[0] if lines else f"Telegram Private Video #{msg_id_val}"
+                            for href in links:
+                                surl = extract_surl(href)
+                                if surl or any(k in href.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox']):
+                                    found_videos.append({
+                                        "title": title,
+                                        "video_url": href,
+                                        "thumbnail_url": "",
+                                        "surl": surl,
+                                        "source_name": "Telegram (Private)"
+                                    })
+                    except Exception as e:
+                        print("Error in private TG fetch:", e)
 
             if not found_videos:
                 # Check if there are other links inside the input string
                 extra_links = re.findall(r'https?://[^\s<>"]+', clean_input)
                 video_links = [l for l in extra_links if not 't.me/' in l and (extract_surl(l) or any(k in l.lower() for k in ['terabox', 'terashare', 'mirrobox']))]
                 if not video_links:
-                    return {
-                        "success": False,
-                        "error": f"Post link '{clean_input}' is from a private Telegram group. Either authenticate via setup_telegram.py, or paste the video link directly!"
-                    }
+                    tg_auth = get_telegram_auth()
+                    if not (tg_auth and tg_auth.get("session_string")):
+                        return {
+                            "success": False,
+                            "error": f"Post link '{clean_input}' is from a private Telegram group. Click 'Telegram Setup' in the upper header to connect your account, or paste the video link directly!"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": f"Could not find playable video or TeraBox links inside private Telegram post #{msg_id}."
+                        }
         else:
             # Public channel post: https://t.me/channel/msg_id
             scrape_url = f"https://t.me/s/{channel}/{msg_id}"
@@ -2118,7 +2328,179 @@ def admin_dashboard():
     except Exception as e:
         print("Admin fetch error:", e)
 
-    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources)
+    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources, telegram_auth=get_telegram_auth())
+
+
+@app.route('/admin/api/telegram/status', methods=['GET'])
+def admin_api_telegram_status():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    auth = get_telegram_auth()
+    if auth and auth.get('session_string'):
+        return jsonify({
+            "success": True,
+            "connected": True,
+            "user_name": auth.get("user_name", "Telegram User"),
+            "phone": auth.get("phone", ""),
+            "api_id": auth.get("api_id", DEFAULT_TG_API_ID),
+            "api_hash": auth.get("api_hash", DEFAULT_TG_API_HASH)
+        })
+    return jsonify({
+        "success": True,
+        "connected": False,
+        "api_id": DEFAULT_TG_API_ID,
+        "api_hash": DEFAULT_TG_API_HASH
+    })
+
+
+@app.route('/admin/api/telegram/send_code', methods=['POST'])
+def admin_api_telegram_send_code():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if not HAS_TELETHON:
+        return jsonify({"success": False, "error": "Telethon library is not installed."}), 500
+
+    data = request.get_json(silent=True) or request.form or {}
+    phone = (data.get('phone') or '').strip()
+    api_id_val = data.get('api_id') or DEFAULT_TG_API_ID
+    api_hash_val = (data.get('api_hash') or DEFAULT_TG_API_HASH).strip()
+
+    if not phone:
+        return jsonify({"success": False, "error": "Phone number is required with country code (e.g. +919876543210)."}), 400
+
+    try:
+        api_id_int = int(api_id_val)
+    except (ValueError, TypeError):
+        return jsonify({"success": False, "error": "Invalid API ID. Must be an integer."}), 400
+
+    try:
+        phone_code_hash, session_str = run_async(async_send_tg_code(api_id_int, api_hash_val, phone))
+        PENDING_TG_LOGINS['admin'] = {
+            "phone": phone,
+            "api_id": api_id_int,
+            "api_hash": api_hash_val,
+            "phone_code_hash": phone_code_hash,
+            "session_str": session_str,
+            "timestamp": time.time()
+        }
+        return jsonify({
+            "success": True,
+            "message": f"Verification code sent to {phone}! Check your Telegram app."
+        })
+    except Exception as e:
+        err_msg = str(e)
+        if "phone_number" in err_msg.lower() or "invalid" in err_msg.lower():
+            err_msg = "Invalid phone number. Please include the international country code (e.g. +91...)."
+        return jsonify({"success": False, "error": err_msg}), 400
+
+
+@app.route('/admin/api/telegram/verify_code', methods=['POST'])
+def admin_api_telegram_verify_code():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    if not HAS_TELETHON:
+        return jsonify({"success": False, "error": "Telethon library is not installed."}), 500
+
+    data = request.get_json(silent=True) or request.form or {}
+    code = (data.get('code') or '').strip()
+    password = (data.get('password') or '').strip() or None
+
+    pending = PENDING_TG_LOGINS.get('admin')
+    if not pending:
+        return jsonify({"success": False, "error": "No pending login code. Please request a code first."}), 400
+
+    if time.time() - pending.get('timestamp', 0) > 600:
+        PENDING_TG_LOGINS.pop('admin', None)
+        return jsonify({"success": False, "error": "Verification code expired. Please request a new one."}), 400
+
+    if not code:
+        return jsonify({"success": False, "error": "Please enter the verification code received on Telegram."}), 400
+
+    try:
+        res = run_async(async_verify_tg_code(
+            pending['api_id'],
+            pending['api_hash'],
+            pending['session_str'],
+            pending['phone'],
+            code,
+            pending['phone_code_hash'],
+            password=password
+        ))
+
+        if res.get("needs_2fa"):
+            pending['session_str'] = res['session_str']
+            return jsonify({
+                "success": False,
+                "needs_2fa": True,
+                "message": "Two-step verification (2FA password) is enabled on this account. Please enter your password."
+            }), 200
+
+        if res.get("success"):
+            save_telegram_auth(
+                pending['api_id'],
+                pending['api_hash'],
+                res['session_str'],
+                res['phone'],
+                res['name']
+            )
+            PENDING_TG_LOGINS.pop('admin', None)
+            return jsonify({
+                "success": True,
+                "message": f"Successfully connected Telegram: {res['name']}!",
+                "user_name": res['name'],
+                "phone": res['phone']
+            })
+        else:
+            return jsonify({"success": False, "error": "Failed to verify code."}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+
+@app.route('/admin/api/telegram/disconnect', methods=['POST'])
+def admin_api_telegram_disconnect():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    clear_telegram_auth()
+    PENDING_TG_LOGINS.pop('admin', None)
+    return jsonify({"success": True, "message": "Telegram account disconnected."})
+
+
+@app.route('/admin/api/telegram/dialogs', methods=['GET'])
+def admin_api_telegram_dialogs():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    auth = get_telegram_auth()
+    if not (auth and auth.get('session_string')):
+        return jsonify({"success": False, "error": "Telegram not connected."}), 400
+    try:
+        dialogs = run_async(async_get_tg_dialogs(auth['api_id'], auth['api_hash'], auth['session_string']))
+        return jsonify({"success": True, "dialogs": dialogs})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route('/admin/api/telegram/import_dialog', methods=['POST'])
+def admin_api_telegram_import_dialog():
+    if not session.get('is_admin'):
+        return jsonify({"success": False, "error": "Unauthorized"}), 401
+    auth = get_telegram_auth()
+    if not (auth and auth.get('session_string')):
+        return jsonify({"success": False, "error": "Telegram not connected."}), 400
+
+    data = request.get_json(silent=True) or request.form or {}
+    group_id = data.get('group_id')
+    limit = int(data.get('limit') or 50)
+
+    if not group_id:
+        return jsonify({"success": False, "error": "Group ID is required."}), 400
+
+    try:
+        messages = run_async(async_import_tg_group_messages(auth['api_id'], auth['api_hash'], auth['session_string'], group_id, limit=limit))
+        combined_text = "\n\n".join(messages)
+        res = import_single_link(combined_text)
+        return jsonify(res)
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
 
 
 @app.route('/admin/api/sources/sync', methods=['POST'])
