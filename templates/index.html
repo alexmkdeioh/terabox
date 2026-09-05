@@ -945,22 +945,39 @@
             }
             formatGrid.innerHTML = formats.map(df => {
                 const dlUrl = df.download_url || df.url || '#';
+                const directUrl = df.direct_url || dlUrl;
                 const qualityName = df.quality || df.label || df.resolution || 'HD Video';
                 const sizeName = df.size || '';
                 const extName = (df.ext || 'MP4').toUpperCase();
+                const isAudio = qualityName.toLowerCase().includes('audio');
+                const isProg = df.is_progressive && !isAudio;
+
                 return `
-                <a href="${dlUrl}" target="_blank" class="glass-panel p-3 rounded-xl border border-dark-border hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-2 group">
+                <div class="glass-panel p-3.5 rounded-xl border ${isProg ? 'border-emerald-500/50 bg-emerald-950/10' : 'border-dark-border'} hover:border-emerald-500/50 hover:bg-slate-800/60 transition flex items-center justify-between gap-3 group">
                     <div class="flex items-center gap-2.5 min-w-0">
-                        <div class="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:bg-emerald-500 group-hover:text-white transition">
-                            <i data-lucide="${(qualityName.toLowerCase().includes('audio')) ? 'music' : 'download'}" class="w-4 h-4 text-emerald-400 group-hover:text-white transition"></i>
+                        <div class="w-9 h-9 rounded-lg ${isProg ? 'bg-emerald-500/20 text-emerald-400' : (isAudio ? 'bg-rose-500/20 text-rose-400' : 'bg-brand-500/20 text-brand-400')} flex items-center justify-center shrink-0">
+                            <i data-lucide="${isAudio ? 'music' : (isProg ? 'check-circle-2' : 'video')}" class="w-4 h-4"></i>
                         </div>
                         <div class="min-w-0">
-                            <p class="text-xs font-semibold text-white truncate">${qualityName}</p>
+                            <div class="flex items-center gap-1.5">
+                                <p class="text-xs font-bold text-white truncate">${qualityName}</p>
+                                ${isProg ? '<span class="text-[9px] bg-emerald-500/30 text-emerald-300 font-extrabold px-1.5 py-0.5 rounded">Video + Audio</span>' : ''}
+                            </div>
                             <span class="text-[10px] text-slate-400 font-mono">${sizeName}${sizeName ? ' • ' : ''}${extName}</span>
                         </div>
                     </div>
-                    <span class="text-xs font-bold text-emerald-400 group-hover:translate-x-0.5 transition">↓</span>
-                </a>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <a href="${dlUrl}" download class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm transition flex items-center gap-1">
+                            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+                            <span>Save</span>
+                        </a>
+                        ${directUrl !== dlUrl ? `
+                        <a href="${directUrl}" target="_blank" title="Direct CDN Link" class="p-1.5 rounded-lg text-xs font-semibold bg-dark-cardAlt hover:bg-slate-700 text-slate-300 border border-dark-border transition">
+                            <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+                        </a>
+                        ` : ''}
+                    </div>
+                </div>
                 `;
             }).join('');
             formatSection.classList.remove('hidden');

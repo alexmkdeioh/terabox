@@ -831,35 +831,56 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
 
                 download_formats = []
                 seen_fids = set()
+
+                # 1. Put progressive format first (Format 18 - 360p MP4 with Video + Audio)
+                if prog_media:
+                    fid = str(prog_media.get('formatId', '18'))
+                    seen_fids.add(fid)
+                    u = prog_media.get('url')
+                    RESOLVE_CACHE[f"yt_direct_{vid}_{fid}"] = (now, u)
+                    download_formats.append({
+                        "label": f"⚡ Fast MP4 (Video + Audio) - 360p",
+                        "quality": "360p MP4 (Video + Audio)",
+                        "format_id": fid,
+                        "ext": "mp4",
+                        "size": "Complete Video + Audio",
+                        "download_url": f"/api/youtube/download?v={vid}&itag={fid}&title={quote(title)}",
+                        "direct_url": u,
+                        "is_progressive": True
+                    })
+
+                # 2. Add high quality video and audio formats
                 for m in medias:
                     fid = str(m.get('formatId') or '')
+                    if not fid or fid in seen_fids:
+                        continue
+                    seen_fids.add(fid)
+
                     q = m.get('quality') or m.get('label') or ''
                     m_type = m.get('type') or 'video'
                     ext = m.get('ext') or ('mp4' if m_type == 'video' else 'm4a')
                     u = m.get('url')
-                    if not u or (fid and fid in seen_fids):
+                    if not u:
                         continue
-                    seen_fids.add(fid)
 
                     is_audio = (m_type == 'audio')
                     is_prog = (fid == '18')
 
-                    # Cache direct format URL for fast chunk-proxy and attachment download
                     RESOLVE_CACHE[f"yt_direct_{vid}_{fid}"] = (now, u)
 
-                    if is_prog:
-                        label = f"⚡ Fast MP4 (Video + Audio) - {q}"
-                    elif is_audio:
-                        label = f"🎵 High Quality Audio ({ext.upper()}) - {q}"
+                    if is_audio:
+                        label = f"🎵 Audio Only ({ext.upper()}) - {q}"
+                        size_note = "High Bitrate Audio"
                     else:
                         label = f"📺 HD Video ({ext.upper()}) - {q}"
+                        size_note = "HD Video Stream"
 
                     download_formats.append({
                         "label": label,
                         "quality": q,
                         "format_id": fid,
                         "ext": ext,
-                        "size": "HD Quality" if not is_audio else "High Bitrate",
+                        "size": size_note,
                         "download_url": f"/api/youtube/download?v={vid}&itag={fid}&title={quote(title)}",
                         "direct_url": u,
                         "is_progressive": is_prog or is_audio
