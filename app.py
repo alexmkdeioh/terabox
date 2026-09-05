@@ -803,7 +803,7 @@ def is_diskwala_link(raw_input: str) -> bool:
 
 
 def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves DiskWala videos via backend API key, stealth scraping, and seamless client-side Cloudflare resolver fallback."""
+    """Resolves DiskWala videos strictly using the official DiskWala backend API system."""
     clean = raw_url_or_id.strip()
     disk_id = extract_diskwala_id(clean)
 
@@ -818,11 +818,16 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
         if now - cached_time < 1200:
             return cached_res
 
+    if not DISKWALA_API_KEY:
+        return {
+            "success": False,
+            "error": "DiskWala API Key is not configured in the backend environment.",
+            "mode": "diskwala"
+        }
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/html, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': 'https://diskwala.com/',
+        'Accept': 'application/json, text/plain, */*',
         'Authorization': f'Bearer {DISKWALA_API_KEY}'
     }
 
@@ -832,91 +837,70 @@ def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
     thumbnail = None
     size_str = "DiskWala HD"
 
-    # 1. Attempt official API resolution using backend DISKWALA_API_KEY
-    if DISKWALA_API_KEY:
-        api_endpoints = [
-            f"https://diskwala.com/api/file/info?key={DISKWALA_API_KEY}&file_code={disk_id}",
-            f"https://diskwala.com/api/file/direct_link?key={DISKWALA_API_KEY}&file_code={disk_id}",
-            f"https://diskwala.com/api/v1/file/info?key={DISKWALA_API_KEY}&file_id={disk_id}",
-            f"https://diskwala.net/api?key={DISKWALA_API_KEY}&url={quote(target_url, safe='')}",
-            f"https://diskwala.net/api?api_key={DISKWALA_API_KEY}&id={disk_id}"
-        ]
-        for ep in api_endpoints:
-            try:
-                r_api = requests.get(ep, headers=headers, timeout=4)
-                if r_api.status_code == 200:
-                    data = r_api.json()
-                    if isinstance(data, dict):
-                        res_obj = data.get("result") or data.get("data") or data
-                        title = res_obj.get("title") or res_obj.get("file_name") or res_obj.get("name") or title
-                        thumbnail = res_obj.get("thumbnail") or res_obj.get("poster") or thumbnail
-                        size_raw = res_obj.get("size") or res_obj.get("file_size")
-                        if size_raw:
-                            size_str = str(size_raw)
-                        stream_candidate = res_obj.get("stream_url") or res_obj.get("direct_link") or res_obj.get("download_url") or res_obj.get("url")
-                        if stream_candidate and ("http" in str(stream_candidate)):
-                            stream_url = stream_candidate
-                            download_url = stream_candidate
-                            break
-            except Exception:
-                pass
+    # Query DiskWala API endpoints with the API key
+    api_endpoints = [
+        f"https://diskwala.com/api/file/info?key={DISKWALA_API_KEY}&file_code={disk_id}",
+        f"https://diskwala.com/api/file/direct_link?key={DISKWALA_API_KEY}&file_code={disk_id}",
+        f"https://diskwala.com/api/v1/file/info?key={DISKWALA_API_KEY}&file_id={disk_id}",
+        f"https://diskwala.net/api?key={DISKWALA_API_KEY}&url={quote(target_url, safe='')}",
+        f"https://diskwala.net/api?api_key={DISKWALA_API_KEY}&id={disk_id}"
+    ]
 
-    # 2. Attempt stealth server-side fetch if stream_url not obtained
-    if not stream_url:
+    for ep in api_endpoints:
         try:
-            r = requests.get(target_url, headers=headers, timeout=5, allow_redirects=True)
-            if r.status_code == 200 and ("<video" in r.text or ".m3u8" in r.text or "file:" in r.text or "sources:" in r.text):
-                t_match = re.search(r'<title>([^<]+)</title>', r.text, re.IGNORECASE)
-                if t_match:
-                    title = t_match.group(1).replace(" - DiskWala", "").replace("DiskWala", "").strip()
+            r_api = requests.get(ep, headers=headers, timeout=6)
+            if r_api.status_code == 200:
+                data = r_api.json()
+                if isinstance(data, dict):
+                    res_obj = data.get("result") or data.get("data") or data
+                    title = res_obj.get("title") or res_obj.get("file_name") or res_obj.get("name") or title
+                    thumbnail = res_obj.get("thumbnail") or res_obj.get("poster") or thumbnail
+                    size_raw = res_obj.get("size") or res_obj.get("file_size")
+                    if size_raw:
+                        size_str = str(size_raw)
+                    stream_candidate = res_obj.get("stream_url") or res_obj.get("direct_link") or res_obj.get("download_url") or res_obj.get("url")
+                    if stream_candidate and ("http" in str(stream_candidate)):
+                        stream_url = stream_candidate
+                        download_url = stream_candidate
+                        break
+        except Exception:
+            pass
 
-                m3u8_match = re.search(r'["\'](https?://[^"\']+\.m3u8[^"\']*)["\']', r.text)
-                if m3u8_match:
-                    stream_url = m3u8_match.group(1)
-                else:
-                    mp4_match = re.search(r'["\'](https?://[^"\']+\.mp4[^"\']*)["\']', r.text)
-                    if mp4_match:
-                        stream_url = mp4_match.group(1)
+    if not stream_url:
+        return {
+            "success": False,
+            "error": "DiskWala API did not return an active stream link for this file. Please verify the link or API access.",
+            "mode": "diskwala"
+        }
 
-                poster_match = re.search(r'poster=["\'](https?://[^"\']+)["\']', r.text)
-                if poster_match:
-                    thumbnail = poster_match.group(1)
-        except Exception as e:
-            print("DiskWala server-side fetch note (Cloudflare / Network):", e)
-
-    embed_url = target_url
-    if "diskwala.com" in target_url and "/watch/" in target_url:
-        embed_url = target_url.replace("/watch/", "/embed/")
-    elif "diskwala.com" in target_url and "/d/" in target_url:
-        embed_url = target_url.replace("/d/", "/embed/")
-
+    is_hls = bool(".m3u8" in stream_url)
     result = {
         "success": True,
         "surl": disk_id or "diskwala",
         "full_surl": disk_id or "diskwala",
-        "title": title or f"DiskWala Video {disk_id}",
+        "title": title,
         "size": size_str,
         "size_bytes": 0,
         "duration_str": "HD Stream",
         "thumbnail": thumbnail,
         "stream_url": stream_url,
-        "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
-        "download_url": stream_url or download_url,
-        "is_hls": bool(stream_url and ".m3u8" in stream_url),
-        "embed_url": embed_url,
+        "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if is_hls else None,
+        "download_url": download_url,
+        "is_hls": is_hls,
         "mode": "diskwala",
-        "requires_client_resolve": not bool(stream_url),
-        "target_url": target_url,
         "playlist": [{
             "index": 0,
-            "title": title or f"DiskWala Video {disk_id}",
+            "title": title,
             "size": size_str,
             "thumbnail": thumbnail,
             "stream_url": stream_url,
-            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if stream_url and ".m3u8" in stream_url else None,
-            "download_url": stream_url or download_url
+            "proxy_stream_url": f"/api/stream/proxy?url={quote(stream_url, safe='')}" if is_hls else None,
+            "download_url": download_url
         }]
     }
+
+    RESOLVE_CACHE[cache_key] = (now, result)
+    return result
 
     if stream_url:
         RESOLVE_CACHE[cache_key] = (now, result)

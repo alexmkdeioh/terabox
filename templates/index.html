@@ -957,64 +957,6 @@
             lucide.createIcons();
         };
 
-        // Client-Side Cloudflare Resolver for DiskWala
-        async function resolveDiskwalaClientSide(rawUrl) {
-            let target = rawUrl.trim();
-            if (!target.startsWith('http')) {
-                target = `https://${target}`;
-            }
-
-            const proxyGateways = [
-                target,
-                `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
-                `https://corsproxy.io/?${encodeURIComponent(target)}`
-            ];
-
-            let extractedStream = null;
-            let extractedTitle = null;
-            let extractedPoster = null;
-
-            for (const gw of proxyGateways) {
-                try {
-                    const resp = await fetch(gw, { cache: 'no-store' });
-                    if (resp.ok) {
-                        const text = await resp.text();
-                        if (text && (text.includes('.m3u8') || text.includes('.mp4') || text.includes('<video') || text.includes('sources:'))) {
-                            const titleMatch = text.match(/<title>([^<]+)<\/title>/i);
-                            if (titleMatch) {
-                                extractedTitle = titleMatch[1].replace(/-\s*DiskWala/gi, '').replace(/DiskWala/gi, '').trim();
-                            }
-
-                            const m3u8Match = text.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/);
-                            if (m3u8Match) {
-                                extractedStream = m3u8Match[1];
-                            } else {
-                                const mp4Match = text.match(/["'](https?:\/\/[^"']+\.mp4[^"']*)["']/);
-                                if (mp4Match) {
-                                    extractedStream = mp4Match[1];
-                                }
-                            }
-
-                            const posterMatch = text.match(/poster=["'](https?:\/\/[^"']+)["']/);
-                            if (posterMatch) {
-                                extractedPoster = posterMatch[1];
-                            }
-
-                            if (extractedStream) break;
-                        }
-                    }
-                } catch (e) {
-                    // try next gateway
-                }
-            }
-
-            return {
-                stream_url: extractedStream,
-                title: extractedTitle,
-                thumbnail: extractedPoster
-            };
-        }
-
         // Form Submit Handler
         streamForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -1037,38 +979,6 @@
 
                 if (!res.ok || !data.success) {
                     throw new Error(data.error || 'Failed to resolve video stream');
-                }
-
-                // Handle client-side Cloudflare bypass for DiskWala
-                if (data.mode === 'diskwala' || activeMode === 'diskwala' || data.requires_client_resolve) {
-                    if (!data.stream_url) {
-                        try {
-                            const clientRes = await resolveDiskwalaClientSide(inputVal);
-                            if (clientRes.stream_url) {
-                                data.stream_url = clientRes.stream_url;
-                                if (clientRes.title) data.title = clientRes.title;
-                                if (clientRes.thumbnail) data.thumbnail = clientRes.thumbnail;
-                                data.is_hls = clientRes.stream_url.includes('.m3u8');
-                                data.download_url = clientRes.stream_url;
-
-                                // Sync resolved stream back to lifetime database
-                                fetch('/api/log_client', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        searched_url: inputVal,
-                                        surl: data.surl,
-                                        video_title: data.title,
-                                        video_size: data.size || 'DiskWala HD',
-                                        stream_url: data.stream_url,
-                                        download_url: data.download_url
-                                    })
-                                }).catch(() => {});
-                            }
-                        } catch (clientErr) {
-                            console.log('Client-side resolve notice:', clientErr);
-                        }
-                    }
                 }
 
                 currentData = data;
