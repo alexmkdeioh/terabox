@@ -781,18 +781,18 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
     thumbnail = f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg" if vid != "youtube" else None
     formats = []
 
-    # 1. Extract progressive format (format 18) via android client
+    # 1. Fast extraction via Android & TV Embedded player clients
     try:
-        ydl_opts_prog = {
+        ydl_opts = {
             'quiet': True,
             'no_warnings': True,
             'skip_download': True,
             'noplaylist': True,
-            'format': None,
-            'extractor_args': {'youtube': {'player_client': ['android']}}
+            'socket_timeout': 8,
+            'extractor_args': {'youtube': {'player_client': ['android', 'tv_embedded']}}
         }
-        with yt_dlp.YoutubeDL(ydl_opts_prog) as ydl_prog:
-            info = ydl_prog.extract_info(target_url, download=False)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(target_url, download=False)
             if info:
                 vid = info.get('id') or vid
                 title = info.get('title') or title
@@ -808,26 +808,7 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
                 thumbnail = info.get('thumbnail') or thumbnail
                 formats.extend(info.get('formats', []))
     except Exception as e:
-        print("Android extraction notice:", e)
-
-    # 2. Extract HD and Audio formats via android_creator
-    try:
-        ydl_opts_hd = {
-            'quiet': True,
-            'no_warnings': True,
-            'skip_download': True,
-            'noplaylist': True,
-            'format': None,
-            'extractor_args': {'youtube': {'player_client': ['android_creator']}}
-        }
-        with yt_dlp.YoutubeDL(ydl_opts_hd) as ydl_hd:
-            info_hd = ydl_hd.extract_info(target_url, download=False)
-            if info_hd and info_hd.get('formats'):
-                formats.extend(info_hd['formats'])
-                if title == f"YouTube Video {vid}" and info_hd.get('title'):
-                    title = info_hd['title']
-    except Exception as e:
-        print("Android creator extraction notice:", e)
+        print("YouTube extraction notice:", e)
 
     try:
         if not formats and not thumbnail:
