@@ -10,19 +10,20 @@ echo "=========================================="
 echo "  🚀 Starting TeraStream Pro on Mobile    "
 echo "=========================================="
 
-# 1. Check & install Python & Git if missing
-if ! command -v python &> /dev/null; then
-    echo "📦 First-time setup: Installing Python & system tools..."
-    pkg update -y
-    pkg install -y python git clang libffi openssl
-fi
+# 1. Update pkg & install build tools needed for Termux
+echo "📦 Ensuring system tools & Python are installed..."
+pkg update -y
+pkg install -y python git clang libffi openssl postgresql
 
-# 2. Check & install pip dependencies if missing
-if ! python -c "import flask, requests" &> /dev/null; then
-    echo "📦 Installing required Python libraries..."
-    pip install --upgrade pip
-    pip install -r requirements.txt
-fi
+# 2. Upgrade pip and wheel
+pip install --upgrade pip setuptools wheel
+
+# 3. Install core packages without breaking on C-extensions
+echo "📦 Installing Python packages..."
+pip install flask requests pycryptodome yt-dlp beautifulsoup4 telethon gunicorn
+
+# 4. Optional postgres driver (ignore failure if Termux uses SQLite)
+pip install psycopg2-binary || true
 
 echo ""
 echo "=========================================="
@@ -39,5 +40,5 @@ elif command -v am &> /dev/null; then
     (sleep 2 && am start -a android.intent.action.VIEW -d "http://localhost:8080" > /dev/null 2>&1) &
 fi
 
-# 3. Start the server
+# 5. Start the server
 python app.py
