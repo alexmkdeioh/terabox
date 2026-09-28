@@ -3393,8 +3393,10 @@ if __name__ == '__main__':
     import sys
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
+    HOST = os.environ.get("HOST", "0.0.0.0")
     print("==================================================")
-    print(f"TeraStream Pro running at: http://127.0.0.1:{PORT}")
-    print(f"Admin Panel: http://127.0.0.1:{PORT}/admin")
+    print(f"TeraStream Pro running at: http://localhost:{PORT}")
+    print(f"Network / Mobile URL: http://<YOUR_PC_IP>:{PORT}")
+    print(f"Admin Panel: http://localhost:{PORT}/admin")
     print("==================================================")
-    app.run(host='127.0.0.1', port=PORT, debug=False, threaded=True)
+    app.run(host=HOST, port=PORT, debug=False, threaded=True)
