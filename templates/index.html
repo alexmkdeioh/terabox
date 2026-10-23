@@ -198,10 +198,7 @@
                     <i data-lucide="flame" class="w-4 h-4 text-amber-400"></i>
                     <span>🔥 Flare / CashSnap</span>
                 </button>
-                <button type="button" id="tabDiskwala" onclick="switchSearchMode('diskwala')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
-                    <i data-lucide="disc" class="w-4 h-4 text-cyan-400"></i>
-                    <span>💾 DiskWala.Net</span>
-                </button>
+
                 <button type="button" id="tabDirect" onclick="switchSearchMode('direct')" class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all text-slate-400 hover:text-white hover:bg-slate-800/80">
                     <i data-lucide="play-circle" class="w-4 h-4 text-emerald-400"></i>
                     <span>🎬 Direct M3U8 / MP4</span>
@@ -335,35 +332,7 @@
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
                     ></iframe>
 
-                    <!-- Diskwala Instant Video Stream & App Bypass Toolbar -->
-                    <div id="diskwalaBypassCard" class="hidden absolute bottom-3 inset-x-3 sm:inset-x-6 z-20 glass-panel p-3.5 sm:p-4 rounded-xl border border-cyan-500/40 bg-slate-900/95 backdrop-blur-md shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
-                        <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-600 flex items-center justify-center shrink-0 shadow-glow">
-                                <i data-lucide="disc" class="w-5 h-5 text-white"></i>
-                            </div>
-                            <div>
-                                <h4 class="text-xs sm:text-sm font-bold text-white flex items-center gap-1.5">
-                                    <span>DiskWala Anti-App Video Playback</span>
-                                    <span class="text-[10px] bg-cyan-500/20 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/30">Direct Stream</span>
-                                </h4>
-                                <p class="text-[11px] text-slate-300">DiskWala locks web streaming behind its app. Click below to stream via DiskWala Video Bot or open in web app.</p>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2 w-full sm:w-auto shrink-0">
-                            <a id="diskwalaTgBotBtn" href="https://t.me/diskwaladl101_bot?start=start" target="_blank" class="flex-1 sm:flex-none px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold rounded-xl shadow-glow flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="play" class="w-3.5 h-3.5 fill-white"></i>
-                                <span>Play in Diskwala Bot</span>
-                            </a>
-                            <a id="diskwalaMiniAppBtn" href="https://t.me/sky577bot" target="_blank" class="flex-1 sm:flex-none px-4 py-2 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-glow flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="send" class="w-3.5 h-3.5"></i>
-                                <span>Mini-App Player</span>
-                            </a>
-                            <a id="diskwalaDirectBtn" href="#" target="_blank" class="flex-1 sm:flex-none px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white border border-dark-border text-xs font-semibold rounded-xl flex items-center justify-center gap-1.5 transition">
-                                <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
-                                <span>Web App</span>
-                            </a>
-                        </div>
-                    </div>
+
                 </div>
             </div>
 
@@ -697,17 +666,7 @@
             iframePlayerContainer.classList.remove('hidden');
             videoIframe.src = embedUrl;
 
-            // Handle Diskwala Anti-App Overlay
-            const diskwalaBypassCard = document.getElementById('diskwalaBypassCard');
-            const diskwalaDirectBtn = document.getElementById('diskwalaDirectBtn');
-            if (currentData && currentData.mode === 'diskwala') {
-                diskwalaBypassCard.classList.remove('hidden');
-                if (diskwalaDirectBtn) {
-                    diskwalaDirectBtn.href = currentData.download_url || embedUrl;
-                }
-            } else {
-                diskwalaBypassCard.classList.add('hidden');
-            }
+
         }
 
         // Theater Mode
@@ -797,8 +756,8 @@
                 <div class="glass-panel p-3.5 rounded-xl border border-dark-border hover:border-brand-500/40 transition group flex flex-col justify-between gap-3">
                     <div>
                         <div class="flex items-center justify-between gap-2 mb-1.5">
-                            <span class="text-[11px] font-bold ${item.mode === 'youtube' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : item.mode === 'diskwala' ? 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' : item.mode === 'flare' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-brand-400 bg-brand-500/10 border-brand-500/20'} px-2 py-0.5 rounded border">
-                                ${item.mode === 'youtube' ? '▶️ YouTube' : item.mode === 'diskwala' ? '💾 DiskWala' : item.mode === 'flare' ? '🔥 Flare' : '⚡ TeraBox'}
+                            <span class="text-[11px] font-bold ${item.mode === 'youtube' ? 'text-rose-400 bg-rose-500/10 border-rose-500/20' : item.mode === 'flare' ? 'text-amber-400 bg-amber-500/10 border-amber-500/20' : 'text-brand-400 bg-brand-500/10 border-brand-500/20'} px-2 py-0.5 rounded border">
+                                ${item.mode === 'youtube' ? '▶️ YouTube' : item.mode === 'flare' ? '🔥 Flare' : '⚡ TeraBox'}
                             </span>
                             <span class="text-[10px] text-slate-400">${item.size || 'HD'}</span>
                         </div>
@@ -912,22 +871,6 @@
                 icon: 'flame',
                 iconColor: 'text-amber-400'
             },
-            diskwala: {
-                title: 'DiskWala <span class="bg-gradient-to-r from-cyan-400 via-teal-400 to-emerald-400 bg-clip-text text-transparent">Video Streamer & Downloader</span>',
-                subtitle: 'Stream and watch videos from Diskwala links directly without forced apps or ads, powered by DiskWala.Net.',
-                badges: `
-                    <span class="text-slate-500 font-medium">Supports:</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-cyan-400 font-mono font-medium">diskwala.com/app/...</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-teal-400 font-mono font-medium">diskwala.net</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-emerald-400 font-mono font-medium">diskwala.com/d/...</span>
-                    <span class="bg-dark-cardAlt border border-dark-border px-2.5 py-0.5 rounded-lg text-slate-300 font-mono font-medium">24-Char File ID</span>
-                `,
-                placeholder: 'Paste Diskwala link (e.g. https://www.diskwala.com/app/6ad9bd63dfc8e29e51cef52b)',
-                hint: '💾 Tip: Supports Diskwala app share links, shortlinks, and direct video file IDs.',
-                btnText: 'Stream & Download',
-                icon: 'disc',
-                iconColor: 'text-cyan-400'
-            },
             direct: {
                 title: 'Direct Video & <span class="bg-gradient-to-r from-emerald-400 to-teal-400 bg-clip-text text-transparent">M3U8 HLS Player</span>',
                 subtitle: 'Paste any direct MP4, M3U8, WebM, or HLS livestream URL for instant ad-free playback in HD theater mode.',
@@ -956,7 +899,6 @@
                 terabox: document.getElementById('tabTerabox'),
                 youtube: document.getElementById('tabYoutube'),
                 flare: document.getElementById('tabFlare'),
-                diskwala: document.getElementById('tabDiskwala'),
                 direct: document.getElementById('tabDirect')
             };
 
@@ -969,8 +911,6 @@
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-red-600 to-rose-600 text-white shadow-glow";
                     } else if (k === 'flare') {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-amber-600 to-rose-600 text-white shadow-glow";
-                    } else if (k === 'diskwala') {
-                        tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-cyan-600 to-teal-600 text-white shadow-glow";
                     } else {
                         tabs[k].className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-glow";
                     }
