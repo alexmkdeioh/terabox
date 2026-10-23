@@ -7,7 +7,6 @@ import time
 import base64
 import sqlite3
 import requests
-import threading
 from urllib.parse import urlparse, parse_qs, quote
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, Response
 
@@ -19,57 +18,10 @@ except ImportError:
     HAS_CRYPTO = False
 
 try:
-    from bs4 import BeautifulSoup
-    HAS_BS4 = True
+    import yt_dlp
+    HAS_YTDLP = True
 except ImportError:
-    HAS_BS4 = False
-
-import asyncio
-import concurrent.futures
-try:
-    from telethon import TelegramClient
-    from telethon.sessions import StringSession
-    from telethon.tl.types import Channel, Chat
-    from telethon.errors import (
-        SessionPasswordNeededError,
-        PhoneCodeInvalidError,
-        PhoneCodeExpiredError,
-        PhoneNumberInvalidError,
-        ApiIdInvalidError,
-    )
-    HAS_TELETHON = True
-except ImportError:
-    HAS_TELETHON = False
-
-DEFAULT_TG_API_ID = int(os.environ.get("TELEGRAM_API_ID", 37318289))
-DEFAULT_TG_API_HASH = os.environ.get("TELEGRAM_API_HASH", "c5357ba72831f3345f35683634b6409b")
-PENDING_TG_LOGINS = {}
-
-def run_async(coro):
-    """Safely executes an async coroutine synchronously inside Flask."""
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = None
-    if loop and loop.is_running():
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            return executor.submit(lambda: asyncio.run(coro)).result()
-    else:
-        return asyncio.run(coro)
-
-_YTDLP_MODULE = None
-
-def get_ytdlp():
-    """Lazy-loads yt_dlp on-demand to save ~60MB RAM on server startup."""
-    global _YTDLP_MODULE
-    if _YTDLP_MODULE is not None:
-        return _YTDLP_MODULE
-    try:
-        import yt_dlp
-        _YTDLP_MODULE = yt_dlp
-        return _YTDLP_MODULE
-    except ImportError:
-        return None
+    HAS_YTDLP = False
 
 app = Flask(__name__, template_folder="templates")
 app.secret_key = os.environ.get("SECRET_KEY", "terastream_secure_session_key_2026")
@@ -78,7 +30,6 @@ PORT = int(os.environ.get("PORT", 8080))
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "mahabir")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "mk@123")
 DB_FILE = os.path.join(os.path.dirname(__file__), "terastream.db")
-DISKWALA_API_KEY = os.environ.get("DISKWALA_API_KEY", "6a9c2fc6ae1992e641218130")
 
 # Lifetime Cloud Database (PostgreSQL) configuration
 DEFAULT_DATABASE_URL = "postgresql://neondb_owner:npg_0JyzHhFLNGs1@ep-gentle-bonus-ae1k78jw-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require"
@@ -100,7 +51,7 @@ def get_db_connection():
     """Returns a database connection (PostgreSQL if DATABASE_URL is set, otherwise local SQLite)."""
     if DATABASE_URL and HAS_PSYCOPG2:
         try:
-            conn = psycopg2.connect(DATABASE_URL, connect_timeout=4)
+            conn = psycopg2.connect(DATABASE_URL, connect_timeout=10)
             return "postgres", conn
         except Exception as e:
             print("PostgreSQL connection error, falling back to SQLite:", e)
@@ -114,7 +65,7 @@ def get_db_connection():
 
 
 def init_db():
-    """Initializes tables for search_logs, feed_sources, and feed_videos across PostgreSQL and SQLite."""
+    """Initializes the search_logs table across PostgreSQL and SQLite."""
     try:
         db_type, conn = get_db_connection()
         with conn:
@@ -134,58 +85,6 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     );
                 ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS feed_sources (
-                        id SERIAL PRIMARY KEY,
-                        name TEXT NOT NULL,
-                        url TEXT UNIQUE NOT NULL,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_synced_at TIMESTAMP
-                    );
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS feed_videos (
-                        id SERIAL PRIMARY KEY,
-                        source_id BIGINT,
-                        source_name TEXT,
-                        title TEXT NOT NULL,
-                        video_url TEXT UNIQUE NOT NULL,
-                        thumbnail_url TEXT,
-                        surl TEXT,
-                        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                ''')
-                try:
-                    cursor.execute("ALTER TABLE feed_videos ALTER COLUMN source_id TYPE BIGINT;")
-                except Exception:
-                    pass
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS telegram_auth (
-                        id SERIAL PRIMARY KEY,
-                        api_id INTEGER,
-                        api_hash TEXT,
-                        session_string TEXT NOT NULL,
-                        phone TEXT,
-                        user_name TEXT,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS app_settings (
-                        key TEXT PRIMARY KEY,
-                        value TEXT,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    );
-                ''')
-                cursor.execute("SELECT COUNT(*) FROM feed_sources")
-                if cursor.fetchone()[0] == 0:
-                    cursor.execute('''
-                        INSERT INTO feed_sources (name, url, is_active)
-                        VALUES (%s, %s, %s)
-                    ''', ('BuriburiReviews', 'https://bio.site/BuriburiReviews', True))
             else:
                 cursor.execute('''
                     CREATE TABLE IF NOT EXISTS search_logs (
@@ -201,54 +100,6 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS feed_sources (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL,
-                        url TEXT UNIQUE NOT NULL,
-                        is_active INTEGER DEFAULT 1,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        last_synced_at TIMESTAMP
-                    )
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS feed_videos (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        source_id INTEGER,
-                        source_name TEXT,
-                        title TEXT NOT NULL,
-                        video_url TEXT UNIQUE NOT NULL,
-                        thumbnail_url TEXT,
-                        surl TEXT,
-                        discovered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS telegram_auth (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        api_id INTEGER,
-                        api_hash TEXT,
-                        session_string TEXT NOT NULL,
-                        phone TEXT,
-                        user_name TEXT,
-                        is_active INTEGER DEFAULT 1,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                cursor.execute('''
-                    CREATE TABLE IF NOT EXISTS app_settings (
-                        key TEXT PRIMARY KEY,
-                        value TEXT,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                ''')
-                cursor.execute("SELECT COUNT(*) FROM feed_sources")
-                if cursor.fetchone()[0] == 0:
-                    cursor.execute('''
-                        INSERT INTO feed_sources (name, url, is_active)
-                        VALUES (?, ?, ?)
-                    ''', ('BuriburiReviews', 'https://bio.site/BuriburiReviews', 1))
             conn.commit()
         conn.close()
     except Exception as e:
@@ -257,56 +108,8 @@ def init_db():
 init_db()
 
 
-def get_app_setting(key, default=None):
-    """Fetches a single configuration setting by key from app_settings."""
-    try:
-        db_type, conn = get_db_connection()
-        val = default
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute("SELECT value FROM app_settings WHERE key = %s", (key,))
-            else:
-                cursor.execute("SELECT value FROM app_settings WHERE key = ?", (key,))
-            row = cursor.fetchone()
-            if row:
-                val = row[0] if isinstance(row, (tuple, list)) else (row.get('value') if hasattr(row, 'get') else row[0])
-        conn.close()
-        return val if val is not None else default
-    except Exception as e:
-        print(f"get_app_setting error for '{key}':", e)
-        return default
-
-
-def set_app_setting(key, value):
-    """Persists a key-value setting in app_settings across PostgreSQL and SQLite."""
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute('''
-                    INSERT INTO app_settings (key, value, updated_at)
-                    VALUES (%s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
-                ''', (key, str(value)))
-            else:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO app_settings (key, value, updated_at)
-                    VALUES (?, ?, datetime('now'))
-                ''', (key, str(value)))
-            conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"set_app_setting error for '{key}':", e)
-        return False
-
-
-
-def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
-    """Worker function executed in background thread to write database records without blocking API."""
-    conn = None
+def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
+    """Guarantees every user search query is saved to lifetime persistent database."""
     try:
         db_type, conn = get_db_connection()
         with conn:
@@ -340,49 +143,13 @@ def _async_log_worker(searched_url, surl, video_title, video_size, stream_url, d
                     str(user_agent or 'Unknown')
                 ))
             conn.commit()
+        conn.close()
     except Exception as e:
-        print("Async log search error:", e)
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+        print("Log search error:", e)
 
 
-def log_search(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent):
-    """Guarantees every user search query is saved asynchronously in background thread for 0ms API response!"""
-    threading.Thread(
-        target=_async_log_worker,
-        args=(searched_url, surl, video_title, video_size, stream_url, download_url, user_ip, user_agent),
-        daemon=True
-    ).start()
-
-
-# ----------------- IN-MEMORY RESOLUTION CACHE (BOUNDED) -----------------
+# ----------------- IN-MEMORY RESOLUTION CACHE -----------------
 RESOLVE_CACHE = {}
-MAX_CACHE_ENTRIES = 120
-CACHE_TTL = 3600  # 1 hour max age
-
-
-def cache_set(key, val):
-    """Sets cache entry with LRU eviction to strictly limit RAM usage under 100MB."""
-    global RESOLVE_CACHE
-    now = time.time()
-    if len(RESOLVE_CACHE) >= MAX_CACHE_ENTRIES:
-        # Purge items older than TTL
-        expired = [k for k, v in RESOLVE_CACHE.items() if isinstance(v, tuple) and (now - v[0] > CACHE_TTL)]
-        for k in expired:
-            RESOLVE_CACHE.pop(k, None)
-        # If still over limit, discard oldest 30 items
-        if len(RESOLVE_CACHE) >= MAX_CACHE_ENTRIES:
-            sorted_keys = sorted(
-                RESOLVE_CACHE.keys(),
-                key=lambda k: RESOLVE_CACHE[k][0] if isinstance(RESOLVE_CACHE[k], tuple) else 0
-            )
-            for k in sorted_keys[:30]:
-                RESOLVE_CACHE.pop(k, None)
-    RESOLVE_CACHE[key] = (now, val)
 
 
 # ----------------- SESSION CACHE FOR HLS STREAMING -----------------
@@ -686,8 +453,200 @@ def resolve_flare_stream(raw_url_or_id: str) -> dict:
         "mode": "flare",
         "playlist": playlist
     }
-    cache_set(cache_key, result)
+    RESOLVE_CACHE[cache_key] = (time.time(), result)
     return result
+
+
+# ----------------- DISKWALA RESOLVER ENGINE -----------------
+
+def extract_diskwala_id(raw_input: str) -> str:
+    """Extracts hex/alphanumeric file ID from Diskwala links (e.g. diskwala.com/app/6ad9bd63dfc8e29e51cef52b or diskwala.net)."""
+    if not raw_input:
+        return ""
+    clean = raw_input.strip()
+
+    # 1. Path format: /app/<hex_id> or /d/<hex_id> or /v/<hex_id>
+    m_path = re.search(r'/(?:app|d|v|file|s)/([a-f0-9]{20,32})', clean, re.IGNORECASE)
+    if m_path:
+        return m_path.group(1).lower()
+
+    # 2. Query param (?id=... or ?url=... containing id)
+    m_param = re.search(r'[?&](?:id|v)=([a-f0-9]{20,32})', clean, re.IGNORECASE)
+    if m_param:
+        return m_param.group(1).lower()
+
+    # 3. Raw 24-char hex string (MongoDB ObjectID standard used by Diskwala)
+    m_raw = re.match(r'^[a-f0-9]{24}$', clean, re.IGNORECASE)
+    if m_raw:
+        return clean.lower()
+
+    return ""
+
+
+def is_diskwala_link(raw_input: str) -> bool:
+    """Detects if raw_input is a Diskwala link or file ID."""
+    if not raw_input:
+        return False
+    clean = raw_input.strip().lower()
+    if any(k in clean for k in ["diskwala.com", "diskwala.net", "diskwaladownloader"]):
+        return True
+    return bool(extract_diskwala_id(raw_input))
+
+
+def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
+    """Resolves Diskwala video stream, fallback player, and metadata."""
+    diskwala_id = extract_diskwala_id(raw_url_or_id)
+    canonical_url = f"https://www.diskwala.com/app/{diskwala_id}" if diskwala_id else raw_url_or_id.strip()
+
+    now = time.time()
+    cache_key = f"diskwala_{diskwala_id or canonical_url}"
+    if cache_key in RESOLVE_CACHE:
+        cached_time, cached_res = RESOLVE_CACHE[cache_key]
+        if now - cached_time < 1200:
+            return cached_res
+
+    target_id = diskwala_id or "diskwala_file"
+    title = f"DiskWala Video ({target_id[:8]}...)"
+    size_str = "Full HD Video"
+    thumbnail = None
+    stream_url = None
+    download_url = canonical_url
+
+    # 1. Attempt resolution via Diskwala Developer API Gateway (api.teraboxdl.site)
+    try:
+        api_headers = {
+            'Content-Type': 'application/json',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+        }
+        r_gw = requests.post(
+            'https://api.teraboxdl.site/api/v1/diskwala/sign',
+            json={'url': canonical_url},
+            headers=api_headers,
+            timeout=6
+        )
+        if r_gw.status_code == 200:
+            gw_data = r_gw.json()
+            if gw_data.get('hls_url') or gw_data.get('stream_url') or gw_data.get('cdn_url'):
+                stream_url = gw_data.get('hls_url') or gw_data.get('stream_url') or gw_data.get('cdn_url')
+                download_url = gw_data.get('cdn_url') or gw_data.get('download_url') or stream_url
+                title = gw_data.get('file_name') or gw_data.get('title') or title
+                size_str = gw_data.get('size') or size_str
+                thumbnail = gw_data.get('thumbnail') or thumbnail
+    except Exception as e:
+        print("Diskwala Developer API notice:", e)
+
+    # 2. Attempt resolution via Diskwala / FlowVideoPlayer resolver gateway
+    if not stream_url:
+        try:
+            session_obj, csrf_token = get_flow_session()
+            if session_obj and csrf_token:
+                ajax_headers = {
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
+                    'Origin': 'https://flowvideoplayer.com',
+                    'Referer': 'https://flowvideoplayer.com/',
+                    'X-CSRF-TOKEN': csrf_token,
+                    'X-Requested-With': 'XMLHttpRequest',
+                }
+                resp = session_obj.post('https://flowvideoplayer.com/search/video', json={'url': canonical_url}, headers=ajax_headers, timeout=8)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") is True and data.get("response") and len(data["response"]) > 0:
+                        first_video = data["response"][0]
+                        title = first_video.get("file_name") or title
+                        size_str = first_video.get("file_size") or size_str
+                        thumbnail = first_video.get("thumbnail") or thumbnail
+                        stream_url = first_video.get("fast_stream_url") or first_video.get("stream_url")
+                        download_url = first_video.get("download_url") or download_url
+        except Exception as e:
+            print("Flow Diskwala extraction notice:", e)
+
+    # 2. Attempt direct resolution via Diskwala Downloader gateway
+    if not stream_url:
+        try:
+            dd_sess = requests.Session()
+            dd_sess.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+            })
+            r_page = dd_sess.get('https://diskwaladownloader.flowvideoplayer.com/', timeout=5)
+            csrf_m = re.search(r'name="csrf-token"\s+content="([^"]+)"', r_page.text)
+            if csrf_m:
+                r_srch = dd_sess.post(
+                    'https://diskwaladownloader.flowvideoplayer.com/searchVideo',
+                    json={'url': canonical_url},
+                    headers={
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrf_m.group(1),
+                        'X-Requested-With': 'XMLHttpRequest'
+                    },
+                    timeout=8
+                )
+                if r_srch.status_code == 200:
+                    d_data = r_srch.json()
+                    if d_data.get('status') is True and d_data.get('response'):
+                        v_res = d_data['response'][0]
+                        title = v_res.get('file_name') or title
+                        size_str = v_res.get('file_size') or size_str
+                        thumbnail = v_res.get('thumbnail') or thumbnail
+                        stream_url = v_res.get('fast_stream_url') or v_res.get('stream_url')
+                        download_url = v_res.get('download_url') or download_url
+        except Exception as e:
+            print("Diskwala Downloader notice:", e)
+
+    # 3. Attempt scraping public web metadata from the Diskwala page
+    try:
+        s_meta = requests.Session()
+        s_meta.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+        })
+        r_app = s_meta.get(canonical_url, timeout=5)
+        if r_app.status_code == 200:
+            m_title = re.search(r'<title>(.*?)</title>', r_app.text, re.I)
+            if m_title and 'DiskWala' not in m_title.group(1):
+                title = m_title.group(1).split(' - ')[0].strip()
+            # Look for direct video tag or stream URLs if embedded
+            v_match = re.search(r'(https?://[^\s"\'<>]+\.(?:mp4|m3u8)[^\s"\'<>]*)', r_app.text)
+            if v_match and not stream_url:
+                stream_url = v_match.group(1)
+    except Exception as e:
+        print("Diskwala page metadata notice:", e)
+
+    is_hls = bool(stream_url and ".m3u8" in stream_url)
+    proxy_stream_url = f"/api/stream/proxy?url={quote(stream_url, safe='')}" if is_hls else None
+
+    # Use Diskwala Web App mirror embed for instant iframe fallback
+    embed_url = canonical_url
+
+    result = {
+        "success": True,
+        "surl": target_id,
+        "full_surl": canonical_url,
+        "title": title,
+        "size": size_str,
+        "size_bytes": 0,
+        "duration_str": "HD Video",
+        "thumbnail": thumbnail,
+        "stream_url": stream_url,
+        "proxy_stream_url": proxy_stream_url,
+        "download_url": download_url,
+        "is_hls": is_hls,
+        "embed_url": embed_url,
+        "mode": "diskwala",
+        "playlist": [{
+            "index": 0,
+            "title": title,
+            "size": size_str,
+            "thumbnail": thumbnail,
+            "stream_url": stream_url,
+            "proxy_stream_url": proxy_stream_url,
+            "download_url": download_url
+        }]
+    }
+
+    RESOLVE_CACHE[cache_key] = (time.time(), result)
+    return result
+
 
 
 def is_direct_stream(raw_input: str) -> bool:
@@ -780,8 +739,7 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         if now - cached_time < 1200:  # 20 minutes cache
             return cached_res
 
-    yt_dlp = get_ytdlp()
-    if not yt_dlp:
+    if not HAS_YTDLP:
         return {
             "success": False,
             "error": "YouTube extraction engine (yt-dlp) is not installed on the server.",
@@ -949,7 +907,7 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
                 }]
             }
 
-            cache_set(cache_key, result)
+            RESOLVE_CACHE[cache_key] = (time.time(), result)
             return result
 
     except Exception as e:
@@ -960,25 +918,28 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
         try:
             r_oembed = requests.get(f"https://www.youtube.com/oembed?url={quote(target_url)}&format=json", timeout=5)
             if r_oembed.status_code == 200:
-                oembed_data = r_oembed.json()
-                fallback_title = oembed_data.get('title') or fallback_title
-                fallback_thumb = oembed_data.get('thumbnail_url') or fallback_thumb
+                oe_data = r_oembed.json()
+                fallback_title = oe_data.get('title') or fallback_title
+                fallback_thumb = oe_data.get('thumbnail_url') or fallback_thumb
         except Exception:
             pass
 
-        vid = video_id or "dQw4w9WgXcQ"
+        vid = video_id or "youtube"
         embed_result = {
             "success": True,
             "surl": vid,
             "full_surl": vid,
             "title": fallback_title,
-            "size": "HD Video",
+            "channel": "YouTube",
+            "views": "",
+            "size": "HD Stream",
             "size_bytes": 0,
-            "duration_str": "HD Video",
+            "duration_str": "HD Stream",
             "thumbnail": fallback_thumb,
             "stream_url": None,
             "proxy_stream_url": None,
             "download_url": f"https://www.youtube.com/watch?v={vid}",
+            "download_formats": [],
             "is_hls": False,
             "embed_url": f"https://www.youtube-nocookie.com/embed/{vid}?autoplay=1",
             "mode": "youtube",
@@ -992,156 +953,12 @@ def resolve_youtube_stream(raw_url_or_id: str) -> dict:
                 "download_url": f"https://www.youtube.com/watch?v={vid}"
             }]
         }
-        cache_set(cache_key, embed_result)
+        RESOLVE_CACHE[cache_key] = (time.time(), embed_result)
         return embed_result
 
 
-
-# ----------------- DISKWALA RESOLVER ENGINE -----------------
-
-def extract_diskwala_id(raw_input: str) -> str:
-    """Extracts the DiskWala file/watch code or ID from any DiskWala URL format."""
-    if not raw_input:
-        return ""
-    clean = raw_input.strip()
-
-    # 1. Path match (/watch/ID, /d/ID, /file/ID, /v/ID, /e/ID, /download/ID)
-    m = re.search(r'/(?:watch|d|file|v|e|download|embed)/([a-zA-Z0-9_-]{4,64})', clean, re.IGNORECASE)
-    if m:
-        return m.group(1)
-
-    # 2. Query param (?id=... or ?v=... or ?code=... or ?url=...)
-    m_q = re.search(r'[?&](?:id|v|code|file_id)=([a-zA-Z0-9_-]{4,64})', clean, re.IGNORECASE)
-    if m_q:
-        return m_q.group(1)
-
-    # 3. If domain is diskwala and last part is alphanumeric
-    if any(d in clean.lower() for d in ["diskwala", "disk.wlc.pw"]):
-        parts = clean.rstrip('/').split('?')[0].split('/')
-        if len(parts) >= 4 and re.match(r'^[a-zA-Z0-9_-]{4,64}$', parts[-1]):
-            return parts[-1]
-
-    return ""
-
-
-def is_diskwala_link(raw_input: str) -> bool:
-    """Detects if input is a DiskWala link."""
-    if not raw_input:
-        return False
-    clean = raw_input.lower().strip()
-    return any(k in clean for k in ["diskwala", "disk.wlc.pw", "diskwala.net", "diskwala.com", "diskwala.org"])
-
-
-def resolve_diskwala_stream(raw_url_or_id: str) -> dict:
-    """Resolves DiskWala videos via Method 1: Mobile App Client Emulation (Android Headers & API Signatures)."""
-    clean = raw_url_or_id.strip()
-    disk_id = extract_diskwala_id(clean)
-
-    target_url = clean
-    if not target_url.startswith("http"):
-        target_url = f"https://diskwala.com/watch/{clean}" if disk_id else f"https://{clean}"
-
-    cache_key = f"diskwala_{disk_id or target_url}"
-    now = time.time()
-    if cache_key in RESOLVE_CACHE:
-        cached_time, cached_res = RESOLVE_CACHE[cache_key]
-        if now - cached_time < 1200:
-            return cached_res
-
-    title = f"DiskWala Video {disk_id}" if disk_id else "DiskWala Video"
-    stream_url = None
-    download_url = target_url
-    thumbnail = None
-    size_str = "DiskWala HD"
-
-    # Method 1: Android Mobile App Client Headers & Signatures (Bypasses Web "Download App" Walls)
-    mobile_app_headers = {
-        'User-Agent': 'DiskWala/2.4.2 (Linux; U; Android 13; en-US; SM-S918B Build/TP1A.220624.014) Mobile/1.0',
-        'X-App-Version': '2.4.2',
-        'X-Client-Type': 'android',
-        'X-Platform': 'Android',
-        'X-Requested-With': 'com.diskwala.app',
-        'Accept': 'application/json, text/plain, */*',
-        'Authorization': f'Bearer {DISKWALA_API_KEY}' if DISKWALA_API_KEY else ''
-    }
-
-    desktop_headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/html, */*',
-        'Referer': 'https://diskwala.com/',
-        'Authorization': f'Bearer {DISKWALA_API_KEY}' if DISKWALA_API_KEY else ''
-    }
-
-    # Query Mobile App API and Web API endpoints
-    api_endpoints = [
-        (f"https://diskwala.com/api/v1/app/file/play?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
-        (f"https://diskwala.com/api/file/info?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
-        (f"https://diskwala.com/api/file/direct_link?key={DISKWALA_API_KEY}&file_code={disk_id}", mobile_app_headers),
-        (f"https://diskwala.com/api/v1/file/info?key={DISKWALA_API_KEY}&file_id={disk_id}", desktop_headers),
-        (f"https://diskwala.net/api?key={DISKWALA_API_KEY}&url={quote(target_url, safe='')}", desktop_headers),
-        (f"https://diskwala.net/api?api_key={DISKWALA_API_KEY}&id={disk_id}", desktop_headers),
-        (f"https://api.diskwala.com/v1/file/play?key={DISKWALA_API_KEY}&file_id={disk_id}", mobile_app_headers)
-    ]
-
-    for ep, hdrs in api_endpoints:
-        try:
-            r_api = requests.get(ep, headers=hdrs, timeout=5)
-            if r_api.status_code == 200:
-                data = r_api.json()
-                if isinstance(data, dict):
-                    res_obj = data.get("result") or data.get("data") or data.get("response") or data
-                    title = res_obj.get("title") or res_obj.get("file_name") or res_obj.get("name") or title
-                    thumbnail = res_obj.get("thumbnail") or res_obj.get("poster") or thumbnail
-                    size_raw = res_obj.get("size") or res_obj.get("file_size")
-                    if size_raw:
-                        size_str = str(size_raw)
-                    stream_candidate = res_obj.get("stream_url") or res_obj.get("direct_link") or res_obj.get("download_url") or res_obj.get("url") or res_obj.get("play_url")
-                    if stream_candidate and ("http" in str(stream_candidate)):
-                        stream_url = stream_candidate
-                        download_url = stream_candidate
-                        break
-        except Exception:
-            pass
-
-    if not stream_url:
-        return {
-            "success": False,
-            "error": "DiskWala Mobile App API did not return an active stream link for this file. Please verify the link or API credentials.",
-            "mode": "diskwala"
-        }
-
-    is_hls = bool(".m3u8" in stream_url)
-    result = {
-        "success": True,
-        "surl": disk_id or "diskwala",
-        "full_surl": disk_id or "diskwala",
-        "title": title,
-        "size": size_str,
-        "size_bytes": 0,
-        "duration_str": "HD Stream",
-        "thumbnail": thumbnail,
-        "stream_url": stream_url,
-        "proxy_stream_url": f"/api/diskwala/stream?url={quote(stream_url, safe='')}" if stream_url else None,
-        "download_url": download_url,
-        "is_hls": is_hls,
-        "mode": "diskwala",
-        "playlist": [{
-            "index": 0,
-            "title": title,
-            "size": size_str,
-            "thumbnail": thumbnail,
-            "stream_url": stream_url,
-            "proxy_stream_url": f"/api/diskwala/stream?url={quote(stream_url, safe='')}" if stream_url else None,
-            "download_url": download_url
-        }]
-    }
-
-    cache_set(cache_key, result)
-    return result
-
-
 def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
-    """Intelligently routes any input to YouTube, DiskWala, TeraBox, Flare/CashSnap, or Direct Video player."""
+    """Intelligently routes any input to YouTube, TeraBox, Flare/CashSnap, or Direct Video player."""
     clean = raw_input.strip()
     if not clean:
         return {"success": False, "error": "Please enter a valid link."}
@@ -1150,13 +967,13 @@ def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
     if mode == "youtube" or is_youtube_link(clean):
         return resolve_youtube_stream(clean)
 
-    # 2. DiskWala mode or DiskWala link format
-    if mode == "diskwala" or is_diskwala_link(clean):
-        return resolve_diskwala_stream(clean)
-
-    # 3. Flare mode or Flare link format (flaredvns, flare*, hugebox, or numeric link ID)
+    # 2. Flare mode or Flare link format (flaredvns, flare*, hugebox, or numeric link ID)
     if mode == "flare" or is_flare_link(clean):
         return resolve_flare_stream(clean)
+
+    # 3. Diskwala mode or Diskwala link format
+    if mode == "diskwala" or is_diskwala_link(clean):
+        return resolve_diskwala_stream(clean)
 
     # 4. Direct video stream (.mp4, .m3u8, .webm)
     if mode == "direct" or (is_direct_stream(clean) and not any(k in clean.lower() for k in ["terabox", "1024tera", "terashare", "flare", "hugebox", "cashsnap", "youtube", "youtu.be", "diskwala"])):
@@ -1164,6 +981,7 @@ def resolve_universal_stream(raw_input: str, mode: str = None) -> dict:
 
     # 5. TeraBox / 1024Tera / TeraShare links
     return resolve_terabox_stream(clean)
+
 
 
 def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
@@ -1256,8 +1074,8 @@ def resolve_terabox_stream(raw_url_or_surl: str) -> dict:
                                 })
                             result["playlist"] = playlist
 
-                            # Save to bounded memory cache for instant future loads
-                            cache_set(clean_surl, result)
+                            # Save to memory cache for instant future loads
+                            RESOLVE_CACHE[clean_surl] = (time.time(), result)
                             return result
                 except Exception as inner_e:
                     continue
@@ -1369,71 +1187,6 @@ def api_resolve():
     return jsonify(stream_info)
 
 
-@app.route('/api/log_client', methods=['POST'])
-def api_log_client():
-    """Logs or updates client-resolved streaming results (DiskWala / Cloudflare bypass) to the lifetime database."""
-    try:
-        data = request.get_json(silent=True) or {}
-        searched_url = data.get("searched_url") or ""
-        surl = data.get("surl") or ""
-        video_title = data.get("video_title") or "DiskWala Video"
-        video_size = data.get("video_size") or "HD Video"
-        stream_url = data.get("stream_url") or ""
-        download_url = data.get("download_url") or ""
-
-        user_ip = request.headers.get('X-Forwarded-For', request.remote_addr or '127.0.0.1').split(',')[0].strip()
-        user_agent = request.headers.get('User-Agent', 'Unknown')
-
-        log_search(
-            searched_url=searched_url,
-            surl=surl,
-            video_title=video_title,
-            video_size=video_size,
-            stream_url=stream_url,
-            download_url=download_url,
-            user_ip=user_ip,
-            user_agent=user_agent
-        )
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/api/diskwala/stream')
-def diskwala_stream_proxy():
-    """Proxies DiskWala media streams with mobile app signatures and Referer headers to bypass hotlinking/403 blocks."""
-    target_stream = request.args.get('url')
-    if not target_stream:
-        return Response("Missing stream URL", status=400)
-
-    proxy_headers = {
-        'User-Agent': 'DiskWala/2.4.2 (Linux; U; Android 13; en-US; SM-S918B Build/TP1A.220624.014) Mobile/1.0',
-        'Referer': 'https://diskwala.com/',
-        'Origin': 'https://diskwala.com'
-    }
-
-    range_header = request.headers.get('Range')
-    if range_header:
-        proxy_headers['Range'] = range_header
-
-    try:
-        req = requests.get(target_stream, headers=proxy_headers, stream=True, timeout=12)
-        resp_headers = {}
-        for h in ['Content-Type', 'Content-Length', 'Accept-Ranges', 'Content-Range']:
-            if h in req.headers:
-                resp_headers[h] = req.headers[h]
-        resp_headers['Access-Control-Allow-Origin'] = '*'
-
-        def generate():
-            for chunk in req.iter_content(chunk_size=64 * 1024):
-                if chunk:
-                    yield chunk
-
-        return Response(generate(), status=req.status_code, headers=resp_headers)
-    except Exception as e:
-        return Response(f"DiskWala stream error: {e}", status=502)
-
-
 @app.route('/api/youtube/stream')
 def youtube_stream_proxy():
     """Proxies YouTube media stream chunks with Range header support for fast buffer & seeking."""
@@ -1466,15 +1219,9 @@ def youtube_stream_proxy():
     try:
         r = requests.get(target_url, headers=req_headers, stream=True, timeout=25)
         def generate():
-            try:
-                for chunk in r.iter_content(chunk_size=65536):
-                    if chunk:
-                        yield chunk
-            finally:
-                try:
-                    r.close()
-                except Exception:
-                    pass
+            for chunk in r.iter_content(chunk_size=65536):
+                if chunk:
+                    yield chunk
 
         resp = Response(generate(), status=r.status_code, content_type=r.headers.get('content-type', 'video/mp4'))
         resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -1499,10 +1246,6 @@ def youtube_download():
 
     if not video_id:
         return Response("Missing video ID", status=400)
-
-    yt_dlp = get_ytdlp()
-    if not yt_dlp:
-        return Response("YouTube extraction engine not available", status=500)
 
     # Sanitize title for filename
     clean_title = re.sub(r'[\\/*?:"<>|]', "", title).strip() or f"youtube_{video_id}"
@@ -1558,15 +1301,9 @@ def youtube_download():
     try:
         r = requests.get(target_url, headers=req_headers, stream=True, timeout=30)
         def generate():
-            try:
-                for chunk in r.iter_content(chunk_size=131072):
-                    if chunk:
-                        yield chunk
-            finally:
-                try:
-                    r.close()
-                except Exception:
-                    pass
+            for chunk in r.iter_content(chunk_size=131072):
+                if chunk:
+                    yield chunk
 
         content_type = r.headers.get('content-type', 'video/mp4')
         resp = Response(generate(), status=r.status_code, content_type=content_type)
@@ -1615,15 +1352,9 @@ def stream_proxy():
         else:
             r = requests.get(target_url, headers=req_headers, stream=True, timeout=20)
             def generate():
-                try:
-                    for chunk in r.iter_content(chunk_size=65536):
-                        if chunk:
-                            yield chunk
-                finally:
-                    try:
-                        r.close()
-                    except Exception:
-                        pass
+                for chunk in r.iter_content(chunk_size=65536):
+                    if chunk:
+                        yield chunk
 
             resp = Response(generate(), status=r.status_code, content_type=r.headers.get('content-type', 'video/MP2T'))
             resp.headers['Access-Control-Allow-Origin'] = '*'
@@ -1639,1028 +1370,9 @@ def stream_proxy():
         return Response(f"Proxy stream error: {str(e)}", status=500)
 
 
-@app.route('/ping', methods=['GET', 'HEAD'])
-def ping():
-    """Ultra-fast ping endpoint for UptimeRobot, Render, and health monitors (keeps server awake 24/7)."""
-    return jsonify({"status": "ok", "message": "pong", "service": "TeraStream Pro Native"}), 200
-
-
-@app.route('/api/health', methods=['GET', 'HEAD'])
+@app.route('/api/health')
 def health():
-    """Detailed health check endpoint for monitoring uptime, memory, and services."""
-    return jsonify({
-        "status": "ok",
-        "service": "TeraStream Pro Native",
-        "port": PORT,
-        "crypto": HAS_CRYPTO,
-        "ytdlp_loaded": _YTDLP_MODULE is not None
-    }), 200
-
-
-# ----------------- ADMIN CURATED VIDEO FEED & MULTI-SOURCE SCRAPER -----------------
-
-def scrape_feed_source(source_url):
-    """
-    Universal scraper capable of parsing bio.site, linktree, video link aggregators,
-    and Telegram private/public channels via Telethon.
-    Returns a list of dicts: [{'title': ..., 'video_url': ..., 'thumbnail_url': ..., 'surl': ...}]
-    """
-    clean_src = (source_url or "").strip()
-    if not clean_src:
-        return []
-
-    # 1. Private Telegram channel / group: t.me/c/<chat_id>
-    m_tg_priv = re.search(r't\.me/c/(\d+)', clean_src)
-    if m_tg_priv:
-        chat_id = m_tg_priv.group(1)
-        auth = get_telegram_auth()
-        if auth and auth.get('session_string') and HAS_TELETHON:
-            try:
-                return run_async(async_scrape_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], chat_id, limit=30))
-            except Exception as e:
-                print("Error scraping private Telegram source:", e)
-                return []
-        print(f"Telegram auth not active for private source {source_url}")
-        return []
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9'
-    }
-    try:
-        # Normalize public telegram source URLs to web preview
-        target_url = clean_src
-        if 't.me/' in clean_src and not 't.me/c/' in clean_src:
-            target_url = re.sub(r'https?://t\.me/(?!s/)([^/]+)', r'https://t.me/s/\1', clean_src)
-
-        r = requests.get(target_url, headers=headers, timeout=12)
-        if r.status_code != 200:
-            print(f"Failed to fetch source {source_url}: status {r.status_code}")
-            # If public telegram failed with requests, try Telethon as fallback
-            if 't.me/' in clean_src:
-                auth = get_telegram_auth()
-                if auth and auth.get('session_string') and HAS_TELETHON:
-                    m_chan = re.search(r't\.me/(?:s/)?([^/\s]+)', clean_src)
-                    if m_chan and m_chan.group(1) != 'c':
-                        return run_async(async_scrape_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], m_chan.group(1), limit=30))
-            return []
-
-        soup = BeautifulSoup(r.text, 'html.parser')
-        raw_items = []
-
-        # 1. Telegram Channel Web Preview (t.me/s/...)
-        tg_wraps = soup.find_all('div', class_='tgme_widget_message_wrap')
-        if tg_wraps:
-            for wrap in tg_wraps:
-                text_el = wrap.find('div', class_='tgme_widget_message_text')
-                text = text_el.get_text(separator="\n", strip=True) if text_el else ""
-
-                img_src = ""
-                photo_el = wrap.find('a', class_='tgme_widget_message_photo_wrap')
-                if photo_el and photo_el.get('style'):
-                    m_bg = re.search(r"background-image:url\('([^']+)'\)", photo_el['style'])
-                    if m_bg:
-                        img_src = m_bg.group(1)
-
-                links = re.findall(r'https?://[^\s<>"]+', text)
-                if text_el:
-                    for a in text_el.find_all('a', href=True):
-                        links.append(a['href'])
-
-                lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http') and not any(d in l.lower() for d in ['t.me/', 'telegram.'])]
-                title = lines[0] if lines else 'Telegram Video'
-
-                for href in links:
-                    clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                    if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                        continue
-                    clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-                    is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
-                    if is_video:
-                        raw_items.append({
-                            'title': title[:180],
-                            'video_url': clean_url,
-                            'thumbnail_url': img_src,
-                            'surl': clean_surl
-                        })
-
-        # 2. bio.site specific detection
-        biosite_links = soup.find_all('a', attrs={'data-cy': 'biosite-link'})
-        if biosite_links:
-            for a in biosite_links:
-                href = (a.get('href') or '').strip()
-                title_el = a.find(attrs={'data-cy': 'link-text-name'})
-                title = title_el.get_text(strip=True) if title_el else ''
-                img_el = a.find('img')
-                img_src = (img_el.get('src') or '').strip() if img_el else ''
-
-                if not href:
-                    continue
-
-                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-                is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
-
-                if is_video:
-                    raw_items.append({
-                        'title': title or 'Video Post',
-                        'video_url': clean_url,
-                        'thumbnail_url': img_src,
-                        'surl': clean_surl
-                    })
-        elif not tg_wraps:
-            # 3. Generic HTML / aggregator fallback
-            for a in soup.find_all('a', href=True):
-                href = (a.get('href') or '').strip()
-                if not href.startswith('http'):
-                    continue
-                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                if any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                    continue
-                clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-                is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube.com', 'youtu.be', 'flare'])
-                if is_video:
-                    title = a.get_text(strip=True)
-                    if not title:
-                        title = a.get('title') or a.get('aria-label') or ''
-                    img_el = a.find('img') or (a.parent and a.parent.find('img'))
-                    img_src = (img_el.get('src') or '').strip() if img_el else ''
-
-                    raw_items.append({
-                        'title': title or 'Video Post',
-                        'video_url': clean_url,
-                        'thumbnail_url': img_src,
-                        'surl': clean_surl
-                    })
-
-        # Deduplicate while preserving order
-        seen_urls = set()
-        unique_items = []
-        for it in raw_items:
-            u = it['video_url']
-            if u not in seen_urls:
-                seen_urls.add(u)
-                unique_items.append(it)
-
-        return unique_items
-    except Exception as e:
-        print(f"Error scraping source {source_url}:", e)
-        return []
-
-
-def get_telegram_auth():
-    """Retrieve saved Telegram auth from database."""
-    try:
-        db_type, conn = get_db_connection()
-        if db_type == "postgres" and HAS_PSYCOPG2:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        else:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-        if db_type == "postgres":
-            cursor.execute("SELECT * FROM telegram_auth WHERE is_active = TRUE ORDER BY id DESC LIMIT 1")
-        else:
-            cursor.execute("SELECT * FROM telegram_auth WHERE is_active = 1 ORDER BY id DESC LIMIT 1")
-        row = cursor.fetchone()
-        conn.close()
-        return dict(row) if row else None
-    except Exception as e:
-        print("get_telegram_auth error:", e)
-        return None
-
-
-def save_telegram_auth(api_id, api_hash, session_string, phone, user_name):
-    """Save or update active Telegram authorization in database."""
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute("DELETE FROM telegram_auth")
-                cursor.execute('''
-                    INSERT INTO telegram_auth (api_id, api_hash, session_string, phone, user_name, is_active)
-                    VALUES (%s, %s, %s, %s, %s, TRUE)
-                ''', (api_id, api_hash, session_string, phone, user_name))
-            else:
-                cursor.execute("DELETE FROM telegram_auth")
-                cursor.execute('''
-                    INSERT INTO telegram_auth (api_id, api_hash, session_string, phone, user_name, is_active)
-                    VALUES (?, ?, ?, ?, ?, 1)
-                ''', (api_id, api_hash, session_string, phone, user_name))
-            conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print("save_telegram_auth error:", e)
-        return False
-
-
-def clear_telegram_auth():
-    """Clear active Telegram authorization from database."""
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM telegram_auth")
-            conn.commit()
-        conn.close()
-        return True
-    except Exception as e:
-        print("clear_telegram_auth error:", e)
-        return False
-
-
-async def async_send_tg_code(api_id, api_hash, phone):
-    client = TelegramClient(StringSession(), api_id, api_hash)
-    await client.connect()
-    res = await client.send_code_request(phone)
-    session_str = client.session.save()
-    phone_code_hash = res.phone_code_hash
-    await client.disconnect()
-    return phone_code_hash, session_str
-
-
-async def async_verify_tg_code(api_id, api_hash, session_str, phone, code, phone_code_hash, password=None):
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
-    await client.connect()
-    try:
-        await client.sign_in(phone=phone, code=code, phone_code_hash=phone_code_hash)
-    except SessionPasswordNeededError:
-        if not password:
-            saved = client.session.save()
-            await client.disconnect()
-            return {"success": False, "needs_2fa": True, "session_str": saved}
-        await client.sign_in(password=password)
-
-    me = await client.get_me()
-    first_name = getattr(me, 'first_name', '') or ''
-    last_name = getattr(me, 'last_name', '') or ''
-    user_name = f"{first_name} {last_name}".strip() or "Telegram User"
-    user_phone = getattr(me, 'phone', '') or phone
-    final_session_str = client.session.save()
-    await client.disconnect()
-    return {"success": True, "name": user_name, "phone": user_phone, "session_str": final_session_str}
-
-
-async def async_get_tg_dialogs(api_id, api_hash, session_str):
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        return []
-
-    dialogs_map = {}
-
-    async def process_dialog(dialog, is_archived=False):
-        entity = dialog.entity
-        if not isinstance(entity, (Channel, Chat)):
-            return
-
-        is_megagroup = bool(getattr(entity, 'megagroup', False))
-        is_broadcast = bool(getattr(entity, 'broadcast', False))
-        is_basic_group = isinstance(entity, Chat)
-        is_private = not bool(getattr(entity, 'username', None))
-
-        if is_megagroup or is_basic_group:
-            type_label = "Private Group" if is_private else "Public Group"
-            category = "group"
-            is_group = True
-            is_channel = False
-        elif is_broadcast:
-            type_label = "Private Channel" if is_private else "Public Channel"
-            category = "channel"
-            is_group = False
-            is_channel = True
-        else:
-            type_label = "Private Group" if is_private else "Group"
-            category = "group"
-            is_group = True
-            is_channel = False
-
-        if is_archived:
-            type_label += " (Archived)"
-
-        dialogs_map[dialog.id] = {
-            "id": dialog.id,
-            "title": dialog.name or "Untitled",
-            "type_label": type_label,
-            "category": category,
-            "is_private": is_private,
-            "is_group": is_group,
-            "is_channel": is_channel,
-            "username": getattr(entity, 'username', '') or '',
-            "unread_count": getattr(dialog, 'unread_count', 0)
-        }
-
-    # Fetch main dialogs (up to 300)
-    try:
-        async for dialog in client.iter_dialogs(limit=300):
-            await process_dialog(dialog, is_archived=False)
-    except Exception as e:
-        print("iter_dialogs error:", e)
-
-    # Fetch archived dialogs (up to 100)
-    try:
-        async for dialog in client.iter_dialogs(limit=100, archived=True):
-            if dialog.id not in dialogs_map:
-                await process_dialog(dialog, is_archived=True)
-    except Exception as e:
-        print("archived iter_dialogs error:", e)
-
-    await client.disconnect()
-
-    # Sort: Private Groups first, then all groups, then private channels, then public channels
-    sorted_dialogs = sorted(
-        dialogs_map.values(),
-        key=lambda d: (
-            0 if (d["is_group"] and d["is_private"]) else
-            1 if d["is_group"] else
-            2 if d["is_private"] else 3,
-            d["title"].lower()
-        )
-    )
-    return sorted_dialogs
-
-
-async def async_resolve_tg_dialog(api_id, api_hash, session_str, query):
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        return None
-
-    clean_query = (query or "").strip()
-    entity = None
-    msg_id = None
-
-    # 1. Pattern: t.me/c/<chat_id>/<msg_id>
-    m_priv_msg = re.search(r't\.me/c/(\d+)/(\d+)', clean_query)
-    if m_priv_msg:
-        peer_id = int(f"-100{m_priv_msg.group(1)}")
-        msg_id = int(m_priv_msg.group(2))
-        try:
-            entity = await client.get_entity(peer_id)
-        except Exception as e:
-            print("resolve t.me/c/<msg_id> error:", e)
-
-    # 2. Pattern: t.me/c/<chat_id>
-    if not entity:
-        m_priv = re.search(r't\.me/c/(\d+)', clean_query)
-        if m_priv:
-            peer_id = int(f"-100{m_priv.group(1)}")
-            try:
-                entity = await client.get_entity(peer_id)
-            except Exception as e:
-                print("resolve t.me/c error:", e)
-
-    # 3. Pattern: Public post t.me/<channel>/<msg_id>
-    if not entity:
-        m_pub_msg = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_query)
-        if m_pub_msg and m_pub_msg.group(1) != 'c':
-            chan = m_pub_msg.group(1)
-            msg_id = int(m_pub_msg.group(2))
-            try:
-                entity = await client.get_entity(chan)
-            except Exception as e:
-                print("resolve public post error:", e)
-
-    # 4. Pattern: Pure number or negative ID
-    if not entity and re.match(r'^-?\d+$', clean_query):
-        num = int(clean_query)
-        peer_id = int(f"-100{abs(num)}") if not str(num).startswith("-100") else num
-        try:
-            entity = await client.get_entity(peer_id)
-        except Exception:
-            try:
-                entity = await client.get_entity(num)
-            except Exception as e:
-                print("resolve numeric error:", e)
-
-    # 5. Pattern: Link or @username
-    if not entity:
-        try:
-            entity = await client.get_entity(clean_query)
-        except Exception as e:
-            print("resolve get_entity error:", e)
-
-    if not entity:
-        await client.disconnect()
-        return None
-
-    is_megagroup = bool(getattr(entity, 'megagroup', False))
-    is_broadcast = bool(getattr(entity, 'broadcast', False))
-    is_basic_group = isinstance(entity, Chat)
-    is_private = not bool(getattr(entity, 'username', None))
-
-    if is_megagroup or is_basic_group:
-        type_label = "Private Group" if is_private else "Public Group"
-        category = "group"
-    elif is_broadcast:
-        type_label = "Private Channel" if is_private else "Public Channel"
-        category = "channel"
-    else:
-        type_label = "Private Group" if is_private else "Group"
-        category = "group"
-
-    entity_id = entity.id
-    if is_megagroup or is_broadcast:
-        if entity_id > 0:
-            entity_id = int(f"-100{entity_id}")
-    elif is_basic_group:
-        if entity_id > 0:
-            entity_id = -entity_id
-
-    result = {
-        "id": entity_id,
-        "title": getattr(entity, 'title', '') or getattr(entity, 'first_name', '') or "Telegram Group",
-        "type_label": type_label,
-        "category": category,
-        "is_private": is_private,
-        "is_group": is_megagroup or is_basic_group,
-        "is_channel": is_broadcast,
-        "username": getattr(entity, 'username', '') or '',
-        "msg_id": msg_id,
-        "query": clean_query
-    }
-    await client.disconnect()
-    return result
-
-
-async def async_fetch_tg_message(api_id, api_hash, session_str, chat_id, msg_id):
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        return None, ""
-    try:
-        peer_id = int(chat_id)
-        if peer_id > 0:
-            peer_id = int(f"-100{chat_id}")
-        entity = await client.get_entity(peer_id)
-        msg = await client.get_messages(entity, ids=int(msg_id))
-        if not msg:
-            await client.disconnect()
-            return None, ""
-        text = msg.text or ""
-        if not text and msg.media:
-            text = getattr(msg, 'message', '') or ''
-        await client.disconnect()
-        return text, ""
-    except Exception as e:
-        print("async_fetch_tg_message error:", e)
-        await client.disconnect()
-        return None, ""
-
-
-async def async_scrape_tg_dialog(api_id, api_hash, session_str, group_id, limit=30):
-    """Scrapes recent messages from any Telegram dialog and extracts video links."""
-    client = TelegramClient(StringSession(session_str), api_id, api_hash)
-    await client.connect()
-    if not await client.is_user_authorized():
-        await client.disconnect()
-        return []
-
-    found_videos = []
-    seen = set()
-    try:
-        peer_id = int(group_id)
-        if peer_id > 0:
-            peer_id = int(f"-100{group_id}")
-
-        entity = await client.get_entity(peer_id)
-        group_title = getattr(entity, 'title', '') or 'Telegram'
-
-        async for msg in client.iter_messages(entity, limit=limit):
-            text = msg.text or getattr(msg, 'message', '') or ''
-            if not text:
-                continue
-
-            raw_links = re.findall(r'https?://[^\s<>"]+', text)
-            if not raw_links:
-                continue
-
-            # Extract title from text lines
-            cleaned_lines = []
-            for l in text.split('\n'):
-                line = l.strip()
-                if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
-                    continue
-                clean_l = re.sub(r'[*_`#~|]', '', line).strip()
-                if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
-                    cleaned_lines.append(clean_l)
-
-            # Pick the best descriptive title line
-            title = cleaned_lines[0] if cleaned_lines else f"Post #{msg.id}"
-            for candidate in cleaned_lines:
-                cand_lower = candidate.lower()
-                if not any(k in cand_lower for k in ['watch online', 'download', 'terabox', 'join', 'original print', 'full hd', 'channel', 'link']):
-                    title = candidate
-                    break
-
-            for href in raw_links:
-                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                    continue
-                if clean_url in seen:
-                    continue
-                seen.add(clean_url)
-
-                surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-                is_video = bool(surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
-                if is_video:
-                    found_videos.append({
-                        "title": title[:180],
-                        "video_url": clean_url,
-                        "thumbnail_url": "",
-                        "surl": surl,
-                        "source_name": f"Telegram ({group_title})"
-                    })
-    except Exception as e:
-        print("async_scrape_tg_dialog error:", e)
-    finally:
-        await client.disconnect()
-
-    return found_videos
-
-
-async def async_import_tg_group_messages(api_id, api_hash, session_str, group_id, limit=30):
-    return await async_scrape_tg_dialog(api_id, api_hash, session_str, group_id, limit=limit)
-
-
-def import_single_link(raw_input: str) -> dict:
-    """
-    Fast, non-blocking importer for video links, Telegram posts (public & private), and copied text.
-    Instantly extracts clean video URLs, titles, and surls and saves them to the top of feed_videos.
-    """
-    clean_input = (raw_input or "").strip()
-    if not clean_input:
-        return {"success": False, "error": "Please enter a valid link or post URL."}
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    }
-
-    found_videos = []
-    seen = set()
-
-    # Case 1: Telegram Post Link (e.g. https://t.me/c/12345/678 or https://t.me/channel/123)
-    tg_match = re.search(r't\.me/(?:s/)?([^/\s]+)/(\d+)', clean_input)
-    if tg_match:
-        channel, msg_id = tg_match.group(1), tg_match.group(2)
-        if channel == 'c':
-            # Private group/channel link: https://t.me/c/CHAT_ID/MSG_ID
-            tg_priv = re.search(r't\.me/c/(\d+)/(\d+)', clean_input)
-            if tg_priv:
-                chat_id_val = tg_priv.group(1)
-                msg_id_val = tg_priv.group(2)
-                tg_auth = get_telegram_auth()
-                if tg_auth and tg_auth.get("session_string") and HAS_TELETHON:
-                    try:
-                        text, _ = run_async(async_fetch_tg_message(
-                            tg_auth["api_id"], tg_auth["api_hash"], tg_auth["session_string"], chat_id_val, msg_id_val
-                        ))
-                        if text:
-                            raw_links = re.findall(r'https?://[^\s<>"]+', text)
-                            cleaned_lines = []
-                            for l in text.split('\n'):
-                                line = l.strip()
-                                if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
-                                    continue
-                                clean_l = re.sub(r'[*_`#~|]', '', line).strip()
-                                if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
-                                    cleaned_lines.append(clean_l)
-
-                            title = cleaned_lines[0] if cleaned_lines else f"Telegram Post #{msg_id_val}"
-                            for candidate in cleaned_lines:
-                                cand_lower = candidate.lower()
-                                if not any(k in cand_lower for k in ['watch online', 'download', 'terabox', 'join', 'original print', 'full hd', 'channel', 'link']):
-                                    title = candidate
-                                    break
-
-                            for href in raw_links:
-                                clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                                if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                                    continue
-                                if clean_url in seen:
-                                    continue
-                                seen.add(clean_url)
-
-                                surl = extract_surl(clean_url)
-                                is_video = bool(surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
-                                if is_video:
-                                    found_videos.append({
-                                        "title": title[:180],
-                                        "video_url": clean_url,
-                                        "thumbnail_url": "",
-                                        "surl": surl,
-                                        "source_name": "Telegram (Private)"
-                                    })
-                    except Exception as e:
-                        print("Error in private TG fetch:", e)
-
-            if not found_videos:
-                tg_auth = get_telegram_auth()
-                if not (tg_auth and tg_auth.get("session_string")):
-                    return {
-                        "success": False,
-                        "error": f"Post link '{clean_input}' is from a private Telegram group. Click 'Telegram Setup' in the header to connect your account!"
-                    }
-                else:
-                    return {
-                        "success": False,
-                        "error": f"Could not find playable video or TeraBox links inside private Telegram post #{msg_id}."
-                    }
-        else:
-            # Public channel post: https://t.me/channel/msg_id
-            scrape_url = f"https://t.me/s/{channel}/{msg_id}"
-            try:
-                r = requests.get(scrape_url, headers=headers, timeout=8)
-                if r.status_code == 200:
-                    soup = BeautifulSoup(r.text, 'html.parser')
-                    text_el = soup.find('div', class_='tgme_widget_message_text')
-                    text = text_el.get_text(separator="\n", strip=True) if text_el else ""
-
-                    img_src = ""
-                    photo_el = soup.find('a', class_='tgme_widget_message_photo_wrap')
-                    if photo_el and photo_el.get('style'):
-                        m_bg = re.search(r"background-image:url\('([^']+)'\)", photo_el['style'])
-                        if m_bg:
-                            img_src = m_bg.group(1)
-
-                    links = re.findall(r'https?://[^\s<>"]+', text)
-                    if text_el:
-                        for a in text_el.find_all('a', href=True):
-                            links.append(a['href'])
-
-                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http') and not any(d in l.lower() for d in ['t.me/', 'telegram.'])]
-                    title = lines[0] if lines else f"Telegram Post #{msg_id}"
-
-                    for href in links:
-                        clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-                        if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                            continue
-                        if clean_url in seen:
-                            continue
-                        seen.add(clean_url)
-
-                        clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-                        is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
-                        if is_video:
-                            found_videos.append({
-                                "title": title[:180],
-                                "video_url": clean_url,
-                                "thumbnail_url": img_src,
-                                "surl": clean_surl,
-                                "source_name": f"Telegram (@{channel})"
-                            })
-            except Exception as e:
-                print("Error scraping public telegram post:", e)
-
-    # Case 2: Extract all video / TeraBox links directly from text or URL input
-    if not found_videos:
-        raw_links = re.findall(r'https?://[^\s<>"]+', clean_input)
-        if not raw_links:
-            surl = extract_surl(clean_input)
-            if surl:
-                raw_links = [f"https://1024terabox.com/s/1{surl}"]
-
-        # Extract title from text lines
-        cleaned_lines = []
-        for l in clean_input.split('\n'):
-            line = l.strip()
-            if not line or line.startswith('http') or any(d in line.lower() for d in ['t.me/', 'telegram.']):
-                continue
-            clean_l = re.sub(r'[*_`#~|]', '', line).strip()
-            if clean_l and len(clean_l) > 2 and not clean_l.startswith('━━━━'):
-                cleaned_lines.append(clean_l)
-
-        fallback_title = cleaned_lines[0] if cleaned_lines else None
-
-        for href in raw_links:
-            clean_url = href.rstrip('*,_)>]"\'').rstrip('*').strip()
-            if not clean_url or any(d in clean_url.lower() for d in ['t.me/', 'telegram.org', 'telegram.me']):
-                continue
-            if clean_url in seen:
-                continue
-            seen.add(clean_url)
-
-            clean_surl = extract_surl(clean_url) or extract_youtube_id(clean_url) or extract_flare_id(clean_url)
-            is_video = bool(clean_surl) or any(k in clean_url.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox', 'youtube', 'youtu.be', 'flare'])
-            if is_video:
-                title = fallback_title or f"Video ({clean_surl or 'TeraBox'})"
-                found_videos.append({
-                    "title": title[:180],
-                    "video_url": clean_url,
-                    "thumbnail_url": "",
-                    "surl": clean_surl,
-                    "source_name": "Direct Import"
-                })
-
-    if not found_videos:
-        return {"success": False, "error": "Could not find any playable video or TeraBox links in the provided post."}
-
-    # Insert into database at the very top (highest ID)
-    db_type, conn = get_db_connection()
-    inserted_records = []
-    with conn:
-        cursor = conn.cursor()
-        for v in found_videos:
-            surl = v.get("surl") or extract_surl(v["video_url"])
-            source_name = v.get("source_name", "Imported")
-            title = v["title"]
-            v_url = v["video_url"]
-            thumb = v.get("thumbnail_url", "")
-
-            if db_type == "postgres":
-                cursor.execute('''
-                    INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (video_url) DO UPDATE SET title = EXCLUDED.title, thumbnail_url = EXCLUDED.thumbnail_url
-                    RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at;
-                ''', (100, source_name, title, v_url, thumb, surl))
-                row = cursor.fetchone()
-                inserted_records.append({
-                    "id": row[0],
-                    "source_name": row[1],
-                    "title": row[2],
-                    "video_url": row[3],
-                    "thumbnail_url": row[4],
-                    "surl": row[5],
-                    "discovered_at": str(row[6])
-                })
-            else:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (100, source_name, title, v_url, thumb, surl))
-                vid_id = cursor.lastrowid
-                inserted_records.append({
-                    "id": vid_id,
-                    "source_name": source_name,
-                    "title": title,
-                    "video_url": v_url,
-                    "thumbnail_url": thumb,
-                    "surl": surl,
-                    "discovered_at": "Just now"
-                })
-        conn.commit()
-    conn.close()
-
-    return {
-        "success": True,
-        "message": f"Successfully imported {len(inserted_records)} video(s) to top of feed!",
-        "videos": inserted_records
-    }
-
-
-
-def sync_feed_sources():
-    """Fetches all active sources, scrapes their latest videos, and inserts new videos into feed_videos."""
-    try:
-        db_type, conn = get_db_connection()
-        sources = []
-        if db_type == "postgres" and HAS_PSYCOPG2:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-            cursor.execute("SELECT id, name, url FROM feed_sources WHERE is_active = TRUE ORDER BY id ASC")
-            sources = cursor.fetchall()
-        else:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT id, name, url FROM feed_sources WHERE is_active = 1 ORDER BY id ASC")
-            sources = [dict(r) for r in cursor.fetchall()]
-        conn.close()
-
-        total_new_videos = 0
-
-        for src in sources:
-            source_id = src['id']
-            source_name = src['name']
-            source_url = src['url']
-
-            items = scrape_feed_source(source_url)
-            if not items:
-                continue
-
-            db_type, conn = get_db_connection()
-            with conn:
-                cursor = conn.cursor()
-                if db_type == "postgres":
-                    cursor.execute("SELECT video_url FROM feed_videos WHERE source_id = %s", (source_id,))
-                else:
-                    cursor.execute("SELECT video_url FROM feed_videos WHERE source_id = ?", (source_id,))
-                existing_urls = set(row[0] for row in cursor.fetchall())
-
-                new_items = [it for it in items if it['video_url'] not in existing_urls]
-
-                # Insert in reverse order so top item on source page (the newest post)
-                # is inserted last, getting the highest auto-increment ID and latest timestamp.
-                for it in reversed(new_items):
-                    clean_surl = it.get('surl') or extract_surl(it['video_url']) or extract_youtube_id(it['video_url']) or extract_flare_id(it['video_url'])
-                    if db_type == "postgres":
-                        cursor.execute('''
-                            INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                            ON CONFLICT (video_url) DO NOTHING
-                        ''', (source_id, source_name, it['title'], it['video_url'], it['thumbnail_url'], clean_surl))
-                    else:
-                        cursor.execute('''
-                            INSERT OR IGNORE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                            VALUES (?, ?, ?, ?, ?, ?)
-                        ''', (source_id, source_name, it['title'], it['video_url'], it['thumbnail_url'], clean_surl))
-                    total_new_videos += 1
-
-                if db_type == "postgres":
-                    cursor.execute("UPDATE feed_sources SET last_synced_at = CURRENT_TIMESTAMP WHERE id = %s", (source_id,))
-                else:
-                    cursor.execute("UPDATE feed_sources SET last_synced_at = datetime('now') WHERE id = ?", (source_id,))
-                conn.commit()
-            conn.close()
-
-        return total_new_videos
-    except Exception as e:
-        print("sync_feed_sources error:", e)
-        return 0
-
-
-AUTO_SYNC_LOCK = threading.Lock()
-AUTO_SYNC_STATE = {
-    "enabled": True,
-    "interval_minutes": 10,
-    "is_syncing": False,
-    "last_sync_timestamp": 0.0,
-    "last_status": "Ready",
-    "last_new_videos": 0,
-    "trigger_immediate": False,
-}
-
-
-def get_auto_sync_info():
-    """Returns a serializable dictionary representing the current auto-sync status."""
-    with AUTO_SYNC_LOCK:
-        interval_mins = AUTO_SYNC_STATE.get("interval_minutes", 10)
-        interval_secs = max(60, interval_mins * 60)
-        last_ts = AUTO_SYNC_STATE.get("last_sync_timestamp", 0.0)
-        is_syncing = AUTO_SYNC_STATE.get("is_syncing", False)
-        enabled = AUTO_SYNC_STATE.get("enabled", True)
-
-        elapsed = time.time() - last_ts if last_ts > 0 else interval_secs
-        remaining_secs = max(0, int(interval_secs - elapsed)) if enabled else None
-
-        last_sync_str = "Never"
-        if last_ts > 0:
-            import datetime
-            last_sync_str = datetime.datetime.fromtimestamp(last_ts).strftime("%I:%M:%S %p")
-
-        return {
-            "enabled": enabled,
-            "interval_minutes": interval_mins,
-            "is_syncing": is_syncing,
-            "last_sync_timestamp": last_ts,
-            "last_sync_formatted": last_sync_str,
-            "next_sync_seconds": remaining_secs,
-            "last_status": AUTO_SYNC_STATE.get("last_status", "Ready"),
-            "last_new_videos": AUTO_SYNC_STATE.get("last_new_videos", 0),
-        }
-
-
-def _do_sync_step(reason="Auto Sync"):
-    """Executes a synchronization cycle across all active sources in a single-locked manner."""
-    with AUTO_SYNC_LOCK:
-        if AUTO_SYNC_STATE["is_syncing"]:
-            return 0
-        AUTO_SYNC_STATE["is_syncing"] = True
-        AUTO_SYNC_STATE["last_status"] = f"Syncing ({reason})..."
-
-    new_count = 0
-    err = None
-    try:
-        new_count = sync_feed_sources()
-    except Exception as e:
-        err = str(e)
-        print(f"[{reason}] Error syncing feed sources:", e)
-    finally:
-        with AUTO_SYNC_LOCK:
-            AUTO_SYNC_STATE["is_syncing"] = False
-            AUTO_SYNC_STATE["last_sync_timestamp"] = time.time()
-            AUTO_SYNC_STATE["last_new_videos"] = new_count
-            if err:
-                AUTO_SYNC_STATE["last_status"] = f"Error: {err[:60]}"
-            else:
-                AUTO_SYNC_STATE["last_status"] = f"Completed ({new_count} new)"
-            try:
-                set_app_setting("auto_sync_last_status", AUTO_SYNC_STATE["last_status"])
-                set_app_setting("auto_sync_last_timestamp", str(AUTO_SYNC_STATE["last_sync_timestamp"]))
-            except Exception:
-                pass
-    return new_count
-
-
-def _auto_sync_worker():
-    """Background daemon thread that runs periodic sync of all feed sources."""
-    time.sleep(3)
-    try:
-        stored_enabled = get_app_setting("auto_sync_enabled", "true")
-        stored_interval = get_app_setting("auto_sync_interval", "10")
-        with AUTO_SYNC_LOCK:
-            AUTO_SYNC_STATE["enabled"] = (str(stored_enabled).lower() == "true")
-            try:
-                AUTO_SYNC_STATE["interval_minutes"] = max(1, int(stored_interval))
-            except Exception:
-                AUTO_SYNC_STATE["interval_minutes"] = 10
-    except Exception as e:
-        print("Auto sync settings load error:", e)
-
-    # Initial boot sync
-    if AUTO_SYNC_STATE.get("enabled", True):
-        _do_sync_step("Startup Sync")
-
-    while True:
-        try:
-            time.sleep(5)
-            should_sync = False
-            with AUTO_SYNC_LOCK:
-                if AUTO_SYNC_STATE["trigger_immediate"]:
-                    AUTO_SYNC_STATE["trigger_immediate"] = False
-                    should_sync = True
-                elif AUTO_SYNC_STATE["enabled"] and not AUTO_SYNC_STATE["is_syncing"]:
-                    interval_secs = AUTO_SYNC_STATE["interval_minutes"] * 60
-                    elapsed = time.time() - AUTO_SYNC_STATE["last_sync_timestamp"]
-                    if elapsed >= interval_secs:
-                        should_sync = True
-
-            if should_sync:
-                _do_sync_step("Scheduled Auto Sync")
-        except Exception as e:
-            print("Auto sync worker loop error:", e)
-            time.sleep(10)
-
-
-threading.Thread(target=_auto_sync_worker, daemon=True).start()
-
-
-
-def _start_telegram_listener():
-    """Starts background Telethon listener for Telegram private group if configured."""
-    config_file = os.path.join(os.path.dirname(__file__), "telegram_config.json")
-    session_file = os.path.join(os.path.dirname(__file__), "telegram_session.session")
-    if not os.path.exists(config_file) or not os.path.exists(session_file):
-        return
-
-    try:
-        with open(config_file, "r", encoding="utf-8") as f:
-            cfg = json.load(f)
-
-        if not cfg.get("active"):
-            return
-
-        api_id = cfg.get("api_id")
-        api_hash = cfg.get("api_hash")
-        target_group_id = cfg.get("target_group_id")
-        group_title = cfg.get("target_group_title", "Private Group")
-
-        from telethon import TelegramClient, events
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        client = TelegramClient(os.path.join(os.path.dirname(__file__), "telegram_session"), api_id, api_hash, loop=loop)
-
-        @client.on(events.NewMessage(chats=target_group_id))
-        async def handler(event):
-            text = event.raw_text or ""
-            links = re.findall(r'https?://[^\s]+', text)
-            for link in links:
-                clean_surl = extract_surl(link)
-                is_video = bool(clean_surl) or any(k in link.lower() for k in ['terabox', 'terashare', 'mirrobox', 'nephobox', '4funbox'])
-                if is_video:
-                    lines = [l.strip() for l in text.split('\n') if l.strip() and not l.startswith('http')]
-                    title = lines[0] if lines else f"Telegram Video ({group_title})"
-                    db_type, conn = get_db_connection()
-                    with conn:
-                        cursor = conn.cursor()
-                        if db_type == "postgres":
-                            cursor.execute('''
-                                INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                                VALUES (%s, %s, %s, %s, %s, %s)
-                                ON CONFLICT (video_url) DO NOTHING
-                            ''', (target_group_id, f"Telegram: {group_title}", title[:200], link, "", clean_surl))
-                        else:
-                            cursor.execute('''
-                                INSERT OR IGNORE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            ''', (target_group_id, f"Telegram: {group_title}", title[:200], link, "", clean_surl))
-                        conn.commit()
-                    conn.close()
-
-        loop.run_until_complete(client.start())
-        client.run_until_disconnected()
-    except Exception as e:
-        print("Telegram background listener error:", e)
-
-threading.Thread(target=_start_telegram_listener, daemon=True).start()
-
+    return jsonify({"status": "ok", "service": "TeraStream Pro Native", "port": PORT})
 
 
 # ----------------- ADMIN PANEL ROUTES -----------------
@@ -2696,15 +1408,11 @@ def admin_dashboard():
         return redirect(url_for('admin_login'))
 
     logs = []
-    feed_videos = []
-    feed_sources = []
     stats = {
         "total_searches": 0,
         "unique_links": 0,
         "today_searches": 0,
         "unique_ips": 0,
-        "total_feed_videos": 0,
-        "active_sources": 0,
         "db_type": "SQLite (Local File)"
     }
 
@@ -2726,23 +1434,8 @@ def admin_dashboard():
             cursor.execute('SELECT COUNT(DISTINCT user_ip) AS count FROM search_logs')
             stats["unique_ips"] = cursor.fetchone()['count']
 
-            cursor.execute('SELECT COUNT(*) AS count FROM feed_videos')
-            stats["total_feed_videos"] = cursor.fetchone()['count']
-
-            cursor.execute('SELECT COUNT(*) AS count FROM feed_sources WHERE is_active = TRUE')
-            stats["active_sources"] = cursor.fetchone()['count']
-
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
             logs = cursor.fetchall()
-
-            cursor.execute('SELECT * FROM feed_videos ORDER BY id DESC LIMIT 500')
-            feed_videos = cursor.fetchall()
-
-            cursor.execute('''
-                SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
-                FROM feed_sources s ORDER BY s.id ASC
-            ''')
-            feed_sources = cursor.fetchall()
         else:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
@@ -2759,549 +1452,14 @@ def admin_dashboard():
             cursor.execute('SELECT COUNT(DISTINCT user_ip) FROM search_logs')
             stats["unique_ips"] = cursor.fetchone()[0]
 
-            cursor.execute('SELECT COUNT(*) FROM feed_videos')
-            stats["total_feed_videos"] = cursor.fetchone()[0]
-
-            cursor.execute('SELECT COUNT(*) FROM feed_sources WHERE is_active = 1')
-            stats["active_sources"] = cursor.fetchone()[0]
-
             cursor.execute('SELECT * FROM search_logs ORDER BY id DESC LIMIT 500')
             logs = [dict(row) for row in cursor.fetchall()]
-
-            cursor.execute('SELECT * FROM feed_videos ORDER BY id DESC LIMIT 500')
-            feed_videos = [dict(row) for row in cursor.fetchall()]
-
-            cursor.execute('''
-                SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
-                FROM feed_sources s ORDER BY s.id ASC
-            ''')
-            feed_sources = [dict(row) for row in cursor.fetchall()]
 
         conn.close()
     except Exception as e:
         print("Admin fetch error:", e)
 
-    return render_template('admin.html', logs=logs, stats=stats, feed_videos=feed_videos, feed_sources=feed_sources, telegram_auth=get_telegram_auth(), auto_sync=get_auto_sync_info())
-
-
-@app.route('/admin/api/telegram/status', methods=['GET'])
-def admin_api_telegram_status():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    auth = get_telegram_auth()
-    if auth and auth.get('session_string'):
-        return jsonify({
-            "success": True,
-            "connected": True,
-            "user_name": auth.get("user_name", "Telegram User"),
-            "phone": auth.get("phone", ""),
-            "api_id": auth.get("api_id", DEFAULT_TG_API_ID),
-            "api_hash": auth.get("api_hash", DEFAULT_TG_API_HASH)
-        })
-    return jsonify({
-        "success": True,
-        "connected": False,
-        "api_id": DEFAULT_TG_API_ID,
-        "api_hash": DEFAULT_TG_API_HASH
-    })
-
-
-@app.route('/admin/api/telegram/send_code', methods=['POST'])
-def admin_api_telegram_send_code():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    if not HAS_TELETHON:
-        return jsonify({"success": False, "error": "Telethon library is not installed."}), 500
-
-    data = request.get_json(silent=True) or request.form or {}
-    phone = (data.get('phone') or '').strip()
-    api_id_val = data.get('api_id') or DEFAULT_TG_API_ID
-    api_hash_val = (data.get('api_hash') or DEFAULT_TG_API_HASH).strip()
-
-    if not phone:
-        return jsonify({"success": False, "error": "Phone number is required with country code (e.g. +919876543210)."}), 400
-
-    try:
-        api_id_int = int(api_id_val)
-    except (ValueError, TypeError):
-        return jsonify({"success": False, "error": "Invalid API ID. Must be an integer."}), 400
-
-    try:
-        phone_code_hash, session_str = run_async(async_send_tg_code(api_id_int, api_hash_val, phone))
-        PENDING_TG_LOGINS['admin'] = {
-            "phone": phone,
-            "api_id": api_id_int,
-            "api_hash": api_hash_val,
-            "phone_code_hash": phone_code_hash,
-            "session_str": session_str,
-            "timestamp": time.time()
-        }
-        return jsonify({
-            "success": True,
-            "message": f"Verification code sent to {phone}! Check your Telegram app."
-        })
-    except Exception as e:
-        err_msg = str(e)
-        if "phone_number" in err_msg.lower() or "invalid" in err_msg.lower():
-            err_msg = "Invalid phone number. Please include the international country code (e.g. +91...)."
-        return jsonify({"success": False, "error": err_msg}), 400
-
-
-@app.route('/admin/api/telegram/verify_code', methods=['POST'])
-def admin_api_telegram_verify_code():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    if not HAS_TELETHON:
-        return jsonify({"success": False, "error": "Telethon library is not installed."}), 500
-
-    data = request.get_json(silent=True) or request.form or {}
-    code = (data.get('code') or '').strip()
-    password = (data.get('password') or '').strip() or None
-
-    pending = PENDING_TG_LOGINS.get('admin')
-    if not pending:
-        return jsonify({"success": False, "error": "No pending login code. Please request a code first."}), 400
-
-    if time.time() - pending.get('timestamp', 0) > 600:
-        PENDING_TG_LOGINS.pop('admin', None)
-        return jsonify({"success": False, "error": "Verification code expired. Please request a new one."}), 400
-
-    if not code:
-        return jsonify({"success": False, "error": "Please enter the verification code received on Telegram."}), 400
-
-    try:
-        res = run_async(async_verify_tg_code(
-            pending['api_id'],
-            pending['api_hash'],
-            pending['session_str'],
-            pending['phone'],
-            code,
-            pending['phone_code_hash'],
-            password=password
-        ))
-
-        if res.get("needs_2fa"):
-            pending['session_str'] = res['session_str']
-            return jsonify({
-                "success": False,
-                "needs_2fa": True,
-                "message": "Two-step verification (2FA password) is enabled on this account. Please enter your password."
-            }), 200
-
-        if res.get("success"):
-            save_telegram_auth(
-                pending['api_id'],
-                pending['api_hash'],
-                res['session_str'],
-                res['phone'],
-                res['name']
-            )
-            PENDING_TG_LOGINS.pop('admin', None)
-            return jsonify({
-                "success": True,
-                "message": f"Successfully connected Telegram: {res['name']}!",
-                "user_name": res['name'],
-                "phone": res['phone']
-            })
-        else:
-            return jsonify({"success": False, "error": "Failed to verify code."}), 400
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 400
-
-
-@app.route('/admin/api/telegram/disconnect', methods=['POST'])
-def admin_api_telegram_disconnect():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    clear_telegram_auth()
-    PENDING_TG_LOGINS.pop('admin', None)
-    return jsonify({"success": True, "message": "Telegram account disconnected."})
-
-
-@app.route('/admin/api/telegram/dialogs', methods=['GET'])
-def admin_api_telegram_dialogs():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    auth = get_telegram_auth()
-    if not (auth and auth.get('session_string')):
-        return jsonify({"success": False, "error": "Telegram not connected."}), 400
-    try:
-        dialogs = run_async(async_get_tg_dialogs(auth['api_id'], auth['api_hash'], auth['session_string']))
-        return jsonify({"success": True, "dialogs": dialogs})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/telegram/import_dialog', methods=['POST'])
-def admin_api_telegram_import_dialog():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    auth = get_telegram_auth()
-    if not (auth and auth.get('session_string')):
-        return jsonify({"success": False, "error": "Telegram not connected."}), 400
-
-    data = request.get_json(silent=True) or request.form or {}
-    group_id = data.get('group_id')
-    group_title = (data.get('group_title') or 'Telegram Group').strip()
-    msg_id = data.get('msg_id')
-    limit = int(data.get('limit') or 30)
-
-    if not group_id:
-        return jsonify({"success": False, "error": "Group ID is required."}), 400
-
-    try:
-        # Case A: Specific message ID requested
-        if msg_id:
-            text, _ = run_async(async_fetch_tg_message(
-                auth['api_id'], auth['api_hash'], auth['session_string'], group_id, msg_id
-            ))
-            if not text:
-                return jsonify({"success": False, "error": f"Message #{msg_id} was empty or not found."}), 404
-            res = import_single_link(text)
-            return jsonify(res)
-
-        # Case B: Import recent group/channel messages
-        videos = run_async(async_import_tg_group_messages(
-            auth['api_id'], auth['api_hash'], auth['session_string'], group_id, limit=limit
-        ))
-        if not videos:
-            return jsonify({"success": False, "error": f"No playable video or TeraBox links found in recent messages of '{group_title}'."}), 404
-
-        # Insert directly into feed_videos
-        db_type, conn = get_db_connection()
-        inserted_records = []
-        source_name = f"Telegram: {group_title}"
-        clean_gid = int(str(group_id).replace('-100', '')) if str(group_id).replace('-100', '').isdigit() else 100
-
-        with conn:
-            cursor = conn.cursor()
-            for v in reversed(videos):
-                title = v['title']
-                v_url = v['video_url']
-                surl = v.get('surl') or extract_surl(v_url)
-                thumb = v.get('thumbnail_url', '')
-
-                if db_type == "postgres":
-                    cursor.execute('''
-                        INSERT INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (video_url) DO UPDATE SET title = EXCLUDED.title
-                        RETURNING id, source_name, title, video_url, thumbnail_url, surl, discovered_at;
-                    ''', (clean_gid, source_name, title, v_url, thumb, surl))
-                    row = cursor.fetchone()
-                    inserted_records.append({
-                        "id": row[0],
-                        "source_name": row[1],
-                        "title": row[2],
-                        "video_url": row[3],
-                        "thumbnail_url": row[4],
-                        "surl": row[5],
-                        "discovered_at": str(row[6])
-                    })
-                else:
-                    cursor.execute('''
-                        INSERT OR REPLACE INTO feed_videos (source_id, source_name, title, video_url, thumbnail_url, surl)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                    ''', (clean_gid, source_name, title, v_url, thumb, surl))
-                    vid_id = cursor.lastrowid
-                    inserted_records.append({
-                        "id": vid_id,
-                        "source_name": source_name,
-                        "title": title,
-                        "video_url": v_url,
-                        "thumbnail_url": thumb,
-                        "surl": surl,
-                        "discovered_at": "Just now"
-                    })
-            conn.commit()
-        conn.close()
-
-        return jsonify({
-            "success": True,
-            "message": f"Successfully imported {len(inserted_records)} video(s) from '{group_title}' to top of feed!",
-            "videos": inserted_records
-        })
-    except Exception as e:
-        print("import_dialog error:", e)
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/telegram/resolve_dialog', methods=['POST'])
-def admin_api_telegram_resolve_dialog():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    auth = get_telegram_auth()
-    if not (auth and auth.get('session_string')):
-        return jsonify({"success": False, "error": "Telegram not connected."}), 400
-
-    data = request.get_json(silent=True) or request.form or {}
-    query = (data.get('query') or '').strip()
-    if not query:
-        return jsonify({"success": False, "error": "Please enter a group ID, link, or username."}), 400
-
-    try:
-        dialog = run_async(async_resolve_tg_dialog(auth['api_id'], auth['api_hash'], auth['session_string'], query))
-        if not dialog:
-            return jsonify({
-                "success": False,
-                "error": f"Could not find or access Telegram group '{query}'. Make sure your logged-in account has joined this group/channel."
-            }), 404
-        return jsonify({"success": True, "dialog": dialog})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/telegram/add_source', methods=['POST'])
-def admin_api_telegram_add_source():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    data = request.get_json(silent=True) or request.form or {}
-    group_id = data.get('group_id')
-    group_title = (data.get('group_title') or 'Telegram Group').strip()
-
-    if not group_id:
-        return jsonify({"success": False, "error": "Group ID is required."}), 400
-
-    clean_id_str = str(group_id).replace('-100', '')
-    source_url = f"https://t.me/c/{clean_id_str}"
-    source_name = f"Telegram: {group_title}"
-
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute('''
-                    INSERT INTO feed_sources (name, url, is_active)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (url) DO UPDATE SET name = EXCLUDED.name, is_active = TRUE
-                ''', (source_name, source_url, True))
-            else:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO feed_sources (name, url, is_active)
-                    VALUES (?, ?, ?)
-                ''', (source_name, source_url, 1))
-            conn.commit()
-        conn.close()
-
-        # Run background sync immediately using the new scrape_feed_source
-        threading.Thread(target=sync_feed_sources, daemon=True).start()
-
-        return jsonify({"success": True, "message": f"'{group_title}' added as active source! Syncing videos in background."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/sources/sync', methods=['POST'])
-def admin_api_sync_sources():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        with AUTO_SYNC_LOCK:
-            if AUTO_SYNC_STATE.get("is_syncing"):
-                return jsonify({"success": False, "error": "A sync is already in progress. Please wait a few seconds."}), 429
-        new_count = _do_sync_step("Manual Sync")
-        info = get_auto_sync_info()
-        return jsonify({
-            "success": True,
-            "new_count": new_count,
-            "message": f"Sync completed! {new_count} new video(s) added.",
-            "auto_sync": info
-        })
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/sources/auto_sync', methods=['GET', 'POST'])
-def admin_api_auto_sync():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-
-    if request.method == 'POST':
-        data = request.get_json(silent=True) or request.form or {}
-        enabled_to_save = None
-        interval_to_save = None
-        with AUTO_SYNC_LOCK:
-            if "enabled" in data:
-                enabled_to_save = bool(data["enabled"])
-                AUTO_SYNC_STATE["enabled"] = enabled_to_save
-
-            if "interval_minutes" in data:
-                try:
-                    interval_to_save = max(1, min(1440, int(data["interval_minutes"])))
-                    AUTO_SYNC_STATE["interval_minutes"] = interval_to_save
-                except (ValueError, TypeError):
-                    pass
-
-            if data.get("sync_now"):
-                AUTO_SYNC_STATE["trigger_immediate"] = True
-
-        if enabled_to_save is not None:
-            set_app_setting("auto_sync_enabled", str(enabled_to_save).lower())
-        if interval_to_save is not None:
-            set_app_setting("auto_sync_interval", str(interval_to_save))
-
-        return jsonify({
-            "success": True,
-            "message": "Auto-sync settings updated successfully.",
-            **get_auto_sync_info()
-        })
-
-    return jsonify({
-        "success": True,
-        **get_auto_sync_info()
-    })
-
-
-
-@app.route('/admin/api/sources', methods=['GET'])
-def admin_api_get_sources():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        db_type, conn = get_db_connection()
-        if db_type == "postgres" and HAS_PSYCOPG2:
-            cursor = conn.cursor(cursor_factory=RealDictCursor)
-        else:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-        cursor.execute('''
-            SELECT s.*, (SELECT COUNT(*) FROM feed_videos v WHERE v.source_id = s.id) AS video_count
-            FROM feed_sources s ORDER BY s.id ASC
-        ''')
-        rows = [dict(r) for r in cursor.fetchall()]
-        conn.close()
-        return jsonify({"success": True, "sources": rows})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/sources/add', methods=['POST'])
-def admin_api_add_source():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    data = request.get_json(silent=True) or request.form or {}
-    url = (data.get('url') or '').strip()
-    name = (data.get('name') or '').strip()
-    if not url:
-        return jsonify({"success": False, "error": "Source URL is required."}), 400
-    if not name:
-        name = urlparse(url).netloc or "New Source"
-
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute('''
-                    INSERT INTO feed_sources (name, url, is_active)
-                    VALUES (%s, %s, %s)
-                    ON CONFLICT (url) DO UPDATE SET is_active = TRUE
-                ''', (name, url, True))
-            else:
-                cursor.execute('''
-                    INSERT OR REPLACE INTO feed_sources (name, url, is_active)
-                    VALUES (?, ?, ?)
-                ''', (name, url, 1))
-            conn.commit()
-        conn.close()
-
-        # Run background sync for the new source
-        threading.Thread(target=sync_feed_sources, daemon=True).start()
-        return jsonify({"success": True, "message": f"Source '{name}' added successfully! Fetching videos in background."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/sources/toggle/<int:source_id>', methods=['POST'])
-def admin_api_toggle_source(source_id):
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute("UPDATE feed_sources SET is_active = NOT is_active WHERE id = %s", (source_id,))
-            else:
-                cursor.execute("UPDATE feed_sources SET is_active = CASE WHEN is_active = 1 THEN 0 ELSE 1 END WHERE id = ?", (source_id,))
-            conn.commit()
-        conn.close()
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/sources/delete/<int:source_id>', methods=['POST'])
-def admin_api_delete_source(source_id):
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute("DELETE FROM feed_sources WHERE id = %s", (source_id,))
-                cursor.execute("DELETE FROM feed_videos WHERE source_id = %s", (source_id,))
-            else:
-                cursor.execute("DELETE FROM feed_sources WHERE id = ?", (source_id,))
-                cursor.execute("DELETE FROM feed_videos WHERE source_id = ?", (source_id,))
-            conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "Source and its videos removed."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/feed/delete/<int:video_id>', methods=['POST'])
-def admin_api_delete_feed_video(video_id):
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            if db_type == "postgres":
-                cursor.execute("DELETE FROM feed_videos WHERE id = %s", (video_id,))
-            else:
-                cursor.execute("DELETE FROM feed_videos WHERE id = ?", (video_id,))
-            conn.commit()
-        conn.close()
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/feed/clear', methods=['POST'])
-def admin_api_clear_feed():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    try:
-        db_type, conn = get_db_connection()
-        with conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM feed_videos")
-            conn.commit()
-        conn.close()
-        return jsonify({"success": True, "message": "Feed cleared."})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route('/admin/api/feed/import_link', methods=['POST'])
-def admin_api_import_link():
-    if not session.get('is_admin'):
-        return jsonify({"success": False, "error": "Unauthorized"}), 401
-    data = request.get_json(silent=True) or request.form or {}
-    raw_input = (data.get('link') or data.get('url') or data.get('text') or '').strip()
-    if not raw_input:
-        return jsonify({"success": False, "error": "No link or post text provided."}), 400
-
-    result = import_single_link(raw_input)
-    status_code = 200 if result.get("success") else 400
-    return jsonify(result), status_code
-
-
+    return render_template('admin.html', logs=logs, stats=stats)
 
 
 @app.route('/admin/export/csv')
@@ -3379,24 +1537,12 @@ def admin_clear():
     return redirect(url_for('admin_dashboard'))
 
 
-@app.after_request
-def add_performance_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    if request.path.startswith('/static/'):
-        response.headers['Cache-Control'] = 'public, max-age=86400, immutable'
-    elif request.path == '/' or request.path.startswith('/play/'):
-        response.headers['Cache-Control'] = 'public, max-age=60'
-    return response
-
-
 if __name__ == '__main__':
     import sys
     if hasattr(sys.stdout, 'reconfigure'):
         sys.stdout.reconfigure(encoding='utf-8')
-    HOST = os.environ.get("HOST", "0.0.0.0")
     print("==================================================")
-    print(f"TeraStream Pro running at: http://localhost:{PORT}")
-    print(f"Network / Mobile URL: http://<YOUR_PC_IP>:{PORT}")
-    print(f"Admin Panel: http://localhost:{PORT}/admin")
+    print(f"TeraStream Pro running at: http://127.0.0.1:{PORT}")
+    print(f"Admin Panel: http://127.0.0.1:{PORT}/admin")
     print("==================================================")
-    app.run(host=HOST, port=PORT, debug=False, threaded=True)
+    app.run(host='127.0.0.1', port=PORT, debug=False, threaded=True)
